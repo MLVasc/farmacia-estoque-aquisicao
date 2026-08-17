@@ -12,6 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -63,6 +64,9 @@
 
           <sc-if value="{{ rolloverBanner }}" hint-placeholder-val="{{ false }}">
             <div style="padding:10px 0;margin-bottom:16px;font:italic 13px var(--font-body);color:var(--color-accent-700)">Mês virado — {{ prevMonthLabel }} arquivado, {{ monthLabel }} iniciado com o estoque anterior.</div>
+          </sc-if>
+          <sc-if value="{{ driveSyncError }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:10px 0;margin-bottom:16px;font:italic 13px var(--font-body);color:var(--color-accent-2-700)">Não deu pra sincronizar com o Google Drive: {{ driveSyncError }}</div>
           </sc-if>
 
           
@@ -414,10 +418,12 @@
         <div class="dialog-backdrop" style="position:absolute;inset:0">
           <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow-y:auto">
             <div class="dialog-title">Virar para {{ nextMonthLabel }}?</div>
-            <div class="dialog-body">O Estoque Atual de cada item de {{ monthLabel }} vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram em todas as categorias. {{ monthLabel }} é arquivado e continua acessível pelo seletor de mês em Estoque e em Relatórios.</div>
+            <div class="dialog-body">O Estoque Atual de cada item de {{ monthLabel }} vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram em todas as categorias. {{ monthLabel }} é arquivado e continua acessível pelo seletor de mês em Estoque e em Relatórios.
+              <sc-if value="{{ googleSignedIn }}" hint-placeholder-val="{{ false }}"> Uma cópia da planilha de {{ monthLabel }} é criada no Drive já com essa mesma virada aplicada.</sc-if>
+            </div>
             <div class="dialog-actions">
-              <button type="button" class="btn btn-secondary" onClick="{{ closeRollover }}">Cancelar</button>
-              <button type="button" class="btn btn-primary" onClick="{{ confirmRollover }}">Virar mês</button>
+              <button type="button" class="btn btn-secondary" onClick="{{ closeRollover }}" disabled="{{ rolloverSyncing }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ confirmRollover }}" disabled="{{ rolloverSyncing }}">{{ rolloverConfirmLabel }}</button>
             </div>
           </div>
         </div>
@@ -482,6 +488,26 @@
 
 </x-dc>
 <script type="text/x-dc" data-dc-script>
+// Integração real com Google Drive/Planilhas — usada na virada de mês do Estoque
+// pra copiar a planilha do mês atual (mesmo modelo/cores/fórmulas) e já deixar a
+// cópia com Estoque Inicial = Estoque Atual anterior, Saída/Recebidos zerados.
+const GOOGLE_CLIENT_ID = '383103391203-gge22o26bfng3rbabcdko8b0ic4kaj5e.apps.googleusercontent.com';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets';
+const ESTOQUE_FOLDER_ID = '1MOErNRNb5yCUb9H8nu-9Gb-uO0UwrasE';
+const ESTOQUE_SHEET_TABS = ['MEDICAÇÃO INJETÁVEIS', 'MEDICAÇÃO COMṔ', 'POMADAS ANESTESICOS  INALA GOTA', 'MEDICAÇÃO CONTROLADA', 'MATERIAL MED CIRUR', 'SOROS'];
+const MONTH_ABBR = { Janeiro: 'JAN', Fevereiro: 'FEV', Março: 'MAR', Abril: 'ABR', Maio: 'MAI', Junho: 'JUN', Julho: 'JUL', Agosto: 'AGO', Setembro: 'SET', Outubro: 'OUT', Novembro: 'NOV', Dezembro: 'DEZ' };
+// IDs conhecidos dos arquivos já existentes no Drive (Março–Agosto/2026). Viradas
+// seguintes gravam o ID do arquivo recém-copiado em state.driveFileIds, então essa
+// tabela só precisa cobrir os meses que já existiam antes de a sincronização existir.
+const SEED_DRIVE_FILE_IDS = {
+  'Março 2026': '1bBe-N6K7jCApNKcbSVt8AYf_TIhUhYT4NEtXFPwkm94',
+  'Abril 2026': '150eRGysmP7UIN9Kt4BFH4bgyp3KM5FdxcI5_UfYJ1bo',
+  'Maio 2026': '1_LuJsMz2kTpYSIVGbzXi-_A7Fm3Bw2W_OInz27P1QOI',
+  'Junho 2026': '1yYPWECLiAwIfHCtZyFV4w_fGX0RNCuU4gqfm3FDmBDY',
+  'Julho 2026': '1_3ooe8OugmKKvaPpUuJfDERzb4ESNFWcylcr65VyT1s',
+  'Agosto 2026': '1yioUNw6NFeOeJsxXu7p9Y_Jey96aVnkbbZsV6zYwS-w',
+};
+
 class Component extends DCLogic {
   state = {
     screen: 'inicio',
@@ -514,6 +540,10 @@ class Component extends DCLogic {
     syncing: false,
     lastSyncMin: 4,
     googleSignedIn: false,
+    googleAccessToken: null,
+    googleTokenExpiry: 0,
+    driveFileIds: {},
+    driveSyncError: null,
     reportPeriod: 'Agosto 2026',
     tasks: [],
     newTaskText: '',
@@ -743,6 +773,82 @@ class Component extends DCLogic {
   isAlert(it) { return this.atual(it) < 0 || it.expired; }
   findCat(list, id) { return list.find(c => c.id === id); }
   pulseSync() { this.setState({ lastSyncMin: 0 }); }
+
+  // --- Google Drive/Planilhas -------------------------------------------------
+
+  ensureTokenClient() {
+    if (this._tokenClient) return this._tokenClient;
+    if (!window.google || !google.accounts || !google.accounts.oauth2) {
+      throw new Error('Biblioteca do Google ainda não carregou — tenta de novo em alguns segundos.');
+    }
+    this._tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID, scope: GOOGLE_SCOPES, callback: () => {},
+    });
+    return this._tokenClient;
+  }
+
+  // Garante um access token válido — pede consentimento (janela do Google) se ainda
+  // não tiver logado; renova silenciosamente se o token expirou mas a sessão do
+  // Google no navegador ainda está ativa.
+  ensureAccessToken(interactive) {
+    const st = this.state;
+    if (st.googleAccessToken && Date.now() < st.googleTokenExpiry - 30000) {
+      return Promise.resolve(st.googleAccessToken);
+    }
+    return new Promise((resolve, reject) => {
+      let client;
+      try { client = this.ensureTokenClient(); } catch (e) { reject(e); return; }
+      client.requestAccessToken({
+        prompt: interactive ? 'consent' : '',
+        callback: (resp) => {
+          if (resp.error) { reject(new Error(resp.error)); return; }
+          this.setState({
+            googleSignedIn: true, googleAccessToken: resp.access_token,
+            googleTokenExpiry: Date.now() + resp.expires_in * 1000, driveSyncError: null,
+          });
+          resolve(resp.access_token);
+        },
+      });
+    });
+  }
+
+  async copyDriveFile(fileId, newName) {
+    const token = await this.ensureAccessToken(false);
+    const res = await fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '/copy', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, parents: [ESTOQUE_FOLDER_ID] }),
+    });
+    if (!res.ok) throw new Error('Cópia no Drive falhou (' + res.status + ')');
+    return (await res.json()).id;
+  }
+
+  // Em cada aba de categoria da planilha copiada: Estoque Inicial (E) vira o Estoque
+  // Atual (H, já calculado pela própria fórmula da planilha) da planilha anterior;
+  // Saída (F) e Recebidos (G) zeram — a mesma regra já aplicada no app.
+  async rolloverSheetTabs(fileId) {
+    const token = await this.ensureAccessToken(false);
+    for (const tab of ESTOQUE_SHEET_TABS) {
+      const range = "'" + tab + "'!E3:H1000";
+      const getRes = await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + '?valueRenderOption=UNFORMATTED_VALUE',
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      if (!getRes.ok) continue; // aba pode não existir nesse arquivo — segue pras próximas
+      const rows = ((await getRes.json()).values || []);
+      const newRows = rows.map(r => [typeof r[3] === 'number' ? r[3] : 0, 0, 0]);
+      if (!newRows.length) continue;
+      const writeRange = "'" + tab + "'!E3:G" + (2 + newRows.length);
+      await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(writeRange) + '?valueInputOption=USER_ENTERED',
+        {
+          method: 'PUT',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ range: writeRange, majorDimension: 'ROWS', values: newRows }),
+        }
+      );
+    }
+  }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
   buildReportPdf(kicker, monthLabel, lines, total) {
@@ -1086,24 +1192,45 @@ class Component extends DCLogic {
       openRollover: () => this.setState({ rolloverDialogOpen: true }),
       closeRollover: () => this.setState({ rolloverDialogOpen: false }),
       rolloverDialogOpen: s.rolloverDialogOpen,
-      confirmRollover: () => {
+      rolloverSyncing: !!s.syncing,
+      rolloverConfirmLabel: s.syncing ? 'Sincronizando…' : 'Virar mês',
+      confirmRollover: async () => {
         const archived = s.categories;
         const rolledCategories = s.categories.map(c => ({ ...c, items: c.items.map(it => ({ ...it, inicial: this.atual(it), saida: 0, recebidos: 0 })) }));
+        const nextName = this.nextMonthName(monthLabel);
+        const currentYear = s.years[s.monthIndex];
+        const nextYear = nextName === 'Janeiro' ? currentYear + 1 : currentYear;
+        const nextKey = nextName + ' ' + nextYear;
+
+        let newFileId = null, driveError = null;
+        if (s.googleSignedIn) {
+          this.setState({ syncing: true });
+          try {
+            const sourceFileId = s.driveFileIds[monthKey] || SEED_DRIVE_FILE_IDS[monthKey];
+            if (sourceFileId) {
+              const newName = nextYear + ' ' + (MONTH_ABBR[nextName] || nextName.slice(0, 3).toUpperCase()) + ' ESTOQUE FARMÁCIA';
+              newFileId = await this.copyDriveFile(sourceFileId, newName);
+              await this.rolloverSheetTabs(newFileId);
+            }
+          } catch (e) {
+            driveError = (e && e.message) || String(e);
+          }
+          this.setState({ syncing: false });
+        }
+
         this.setState(x => {
           const atLastKnownMonth = x.monthIndex === x.months.length - 1;
-          const nextName = this.nextMonthName(monthLabel);
-          const currentYear = x.years[x.monthIndex];
-          const nextYear = nextName === 'Janeiro' ? currentYear + 1 : currentYear;
           const months = atLastKnownMonth ? [...x.months, nextName] : x.months;
           const years = atLastKnownMonth ? [...x.years, nextYear] : x.years;
           const newIndex = x.monthIndex + 1;
           return {
             months, years,
+            driveFileIds: newFileId ? { ...x.driveFileIds, [nextKey]: newFileId } : x.driveFileIds,
             history: { ...x.history, [monthKey]: archived },
             categories: rolledCategories,
             monthIndex: newIndex, viewMonthIndex: newIndex,
             reportPeriod: months[newIndex] + ' ' + years[newIndex],
-            rolloverDialogOpen: false, rolloverBanner: true,
+            rolloverDialogOpen: false, rolloverBanner: true, driveSyncError: driveError,
           };
         });
         this.pulseSync();
@@ -1207,10 +1334,24 @@ class Component extends DCLogic {
       },
 
       lastSyncMin: s.lastSyncMin, autoSync: s.autoSync, googleSignedIn: s.googleSignedIn, googleNotSignedIn: !s.googleSignedIn,
-      toggleGoogleSignIn: () => this.setState(x => ({ googleSignedIn: !x.googleSignedIn })),
+      driveSyncError: s.driveSyncError,
+      toggleGoogleSignIn: () => {
+        if (s.googleSignedIn) {
+          if (s.googleAccessToken && window.google) google.accounts.oauth2.revoke(s.googleAccessToken, () => {});
+          this.setState({ googleSignedIn: false, googleAccessToken: null, googleTokenExpiry: 0 });
+          return;
+        }
+        this.ensureAccessToken(true).catch(e => this.setState({ driveSyncError: (e && e.message) || String(e) }));
+      },
       toggleAutoSync: () => this.setState(x => ({ autoSync: !x.autoSync })),
       syncButtonLabel: s.syncing ? 'Sincronizando…' : 'Sincronizar agora',
-      doSync: () => { this.setState({ syncing: true }); setTimeout(() => this.setState({ syncing: false, lastSyncMin: 0 }), 900); },
+      doSync: () => {
+        if (!s.googleSignedIn) return;
+        this.setState({ syncing: true });
+        this.ensureAccessToken(false)
+          .then(() => this.setState({ syncing: false, lastSyncMin: 0, driveSyncError: null }))
+          .catch(e => this.setState({ syncing: false, driveSyncError: (e && e.message) || String(e) }));
+      },
       syncDotColor: alertCount > 0 ? 'var(--color-accent-700)' : 'var(--color-accent-600)',
       syncStripText: 'Sincronizado com Google Planilhas · há ' + s.lastSyncMin + ' min',
 
