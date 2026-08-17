@@ -42,18 +42,22 @@
           <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:4px">{{ monthLabel }} · {{ yearLabel }}</div>
           <h1 style="font: 400 30px/1.1 var(--font-heading); margin: 0 0 20px; text-align: center">Divisão de Farmácia</h1>
 
-          <div style="display: flex; gap: 28px; margin-bottom: 22px; justify-content: center">
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); row-gap: 18px; margin-bottom: 22px">
             <button type="button" onClick="{{ goAlertas }}" style="all:unset;cursor:pointer">
               <div style="font: 400 34px/1 var(--font-heading); color: {{ alertCountColor }}; text-decoration-line: none; text-underline-offset: 4px; text-align: center">{{ stats.alertCount }}</div>
-              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Itens em Alerta</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px;text-align:center">Itens em Alerta</div>
             </button>
             <div>
               <div style="font: 400 34px/1 var(--font-heading); text-align: center">{{ stats.totalItems }}</div>
-              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Itens Cadastrados</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px;text-align:center">Itens Cadastrados</div>
             </div>
             <div>
               <div style="font: 400 34px/1 var(--font-heading); text-align: center">{{ stats.totalSaida }}</div>
-              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Saídas do Mês</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px;text-align:center">Saídas do Mês</div>
+            </div>
+            <div>
+              <div style="font: 400 34px/1 var(--font-heading); text-align: center">{{ stats.totalSaidaAno }}</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px;text-align:center">Saídas do Ano</div>
             </div>
           </div>
 
@@ -882,7 +886,13 @@ class Component extends DCLogic {
     const isCurrentView = s.viewMonthIndex === s.monthIndex;
     const viewCategories = isCurrentView ? s.categories : (s.history[viewMonthKey] || s.categories);
 
-    let alertCount = 0, totalItems = 0, totalSaida = 0;
+    let alertCount = 0, totalItems = 0, totalSaida = 0, totalSaidaAno = 0;
+    s.months.forEach((label, idx) => {
+      if (s.years[idx] !== yearLabel) return;
+      const key = label + ' ' + s.years[idx];
+      const cats = key === monthKey ? s.categories : (s.history[key] || s.categories);
+      cats.forEach(c => c.items.forEach(it => { totalSaidaAno += it.saida; }));
+    });
     s.categories.forEach(c => c.items.forEach(it => { totalItems++; totalSaida += it.saida; if (this.isAlert(it)) alertCount++; }));
 
     if (!this.findCat(viewCategories, s.activeCategory)) s.activeCategory = viewCategories[0].id;
@@ -1071,7 +1081,7 @@ class Component extends DCLogic {
 
       monthLabel, yearLabel, nextMonthLabel, prevMonthLabel,
       rolloverBanner: s.rolloverBanner,
-      stats: { alertCount, totalItems, totalSaida },
+      stats: { alertCount, totalItems, totalSaida, totalSaidaAno },
       alertCountColor: alertCount > 0 ? 'var(--color-accent-2-700)' : 'var(--color-text)',
       openRollover: () => this.setState({ rolloverDialogOpen: true }),
       closeRollover: () => this.setState({ rolloverDialogOpen: false }),
