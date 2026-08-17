@@ -512,6 +512,22 @@ const SEED_DRIVE_FILE_IDS = {
   'Agosto 2026': '1yioUNw6NFeOeJsxXu7p9Y_Jey96aVnkbbZsV6zYwS-w',
 };
 
+// Planilha única "Saúde Aquisição 2026" (várias abas, uma por página do app).
+const ACQ_FILE_ID = '1fls8HXcMKU2WRexcP55216bLJRKwPa0gXfaDmtaZE_E';
+const ACQ_TAB_NAMES = {
+  aquisicoes: 'Aquisições', dispensa: 'Dispensa', necessidades: 'Necessidades',
+  ar: 'Ar Condicionado', metas: 'METAS DO PAR - SAFIN',
+};
+// Ordem das colunas na planilha, na mesma ordem de `fields` de cada página em
+// seedAcqPages() — usada tanto pra ler quanto pra escrever linhas novas.
+const ACQ_FIELD_KEYS = {
+  aquisicoes: ['par', 'solemp', 'empresa', 'descricao', 'statusSolemp', 'empenho', 'statusEmpenho', 'valorEmp', 'obs', 'contato', 'respondido', 'chegadaMaterial', 'nfeNum', 'entradaNfe', 'statusNfe', 'envioNfe'],
+  dispensa: ['par', 'nup', 'descricao', 'valor', 'fase', 'nupObtencao', 'cp', 'dfd', 'pp', 'tr', 'do', 'modeloAgu', 'adequacao', 'ato'],
+  necessidades: ['nd', 'valor', 'necessidade', 'obs'],
+  ar: ['btu', 'local', 'solemp', 'empenho', 'valor', 'par'],
+  metas: ['texto', 'nd'],
+};
+
 class Component extends DCLogic {
   state = {
     screen: 'inicio',
@@ -861,6 +877,70 @@ class Component extends DCLogic {
         }
       );
     }
+  }
+
+  // --- Aquisições: excluir/criar refletindo direto na planilha do Drive -------
+
+  async getSheetGid(tabName) {
+    this._sheetGids = this._sheetGids || {};
+    if (this._sheetGids[tabName] != null) return this._sheetGids[tabName];
+    const token = await this.ensureAccessToken(false);
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '?fields=' + encodeURIComponent('sheets(properties(sheetId,title))'),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error('Não consegui ler a estrutura da planilha (' + res.status + ')');
+    const data = await res.json();
+    (data.sheets || []).forEach(sh => { this._sheetGids[sh.properties.title] = sh.properties.sheetId; });
+    if (this._sheetGids[tabName] == null) throw new Error('Aba "' + tabName + '" não encontrada na planilha');
+    return this._sheetGids[tabName];
+  }
+
+  // Apaga a linha (row 1-indexado, igual ao que a UI do Sheets mostra) da aba
+  // correspondente à página. Ajusta o cache local de gid, mas quem chama precisa
+  // decrementar o _row dos outros registros dessa aba com row maior — ver
+  // shiftAcqRowsAfterDelete no handler.
+  async deleteAcqRecordRemote(pageId, row) {
+    if (row == null) return; // registro sem linha conhecida (ex.: criado só localmente antes de sincronizar)
+    const tab = ACQ_TAB_NAMES[pageId];
+    if (!tab) return;
+    const token = await this.ensureAccessToken(false);
+    const gid = await this.getSheetGid(tab);
+    const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + ':batchUpdate', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: { sheetId: gid, dimension: 'ROWS', startIndex: row - 1, endIndex: row },
+          },
+        }],
+      }),
+    });
+    if (!res.ok) throw new Error('Não consegui excluir na planilha (' + res.status + ')');
+  }
+
+  // Acrescenta uma linha nova ao final da aba, na ordem de colunas de ACQ_FIELD_KEYS.
+  // Retorna a linha (1-indexada) onde a planilha realmente escreveu.
+  async appendAcqRecordRemote(pageId, record) {
+    const tab = ACQ_TAB_NAMES[pageId];
+    const keys = ACQ_FIELD_KEYS[pageId];
+    if (!tab || !keys) return null;
+    const token = await this.ensureAccessToken(false);
+    const values = [keys.map(k => record[k] ?? '')];
+    const range = "'" + tab + "'!A1";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values }),
+      }
+    );
+    if (!res.ok) throw new Error('Não consegui gravar na planilha (' + res.status + ')');
+    const data = await res.json();
+    const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
+    return match ? Number(match[1]) : null;
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
@@ -1379,23 +1459,63 @@ class Component extends DCLogic {
       },
       acqDialogOpen, acqDlg,
       closeAcqDialog: () => this.setState({ acqItemDialog: null }),
-      saveAcqRecord: () => {
+      saveAcqRecord: async () => {
         const page = activeAcqPage;
         if (s.acqItemDialog.isNew) {
           const d = s.acqItemDialog.draft;
-          this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...d, id: 'rec-' + Date.now() }] }), acqItemDialog: null }));
+          const newId = 'rec-' + Date.now();
+          this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...d, id: newId }] }), acqItemDialog: null }));
+          if (s.googleSignedIn) {
+            try {
+              const row = await this.appendAcqRecordRemote(page.id, d);
+              this.setState(x => ({
+                acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.map(r => r.id === newId ? { ...r, _row: row } : r) }),
+                driveSyncError: null,
+              }));
+            } catch (e) {
+              this.setState({ driveSyncError: 'Salvo no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e) });
+            }
+          }
         } else this.setState({ acqItemDialog: null });
         this.pulseSync();
       },
-      duplicateAcqRecord: () => {
+      duplicateAcqRecord: async () => {
         const page = activeAcqPage;
         const rec = page.records.find(r => r.id === s.acqItemDialog.recordId);
-        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...rec, id: 'rec-' + Date.now() }] }), acqItemDialog: null }));
+        const newId = 'rec-' + Date.now();
+        const { _row, id, ...fields } = rec;
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...fields, id: newId }] }), acqItemDialog: null }));
+        if (s.googleSignedIn) {
+          try {
+            const row = await this.appendAcqRecordRemote(page.id, fields);
+            this.setState(x => ({
+              acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.map(r => r.id === newId ? { ...r, _row: row } : r) }),
+              driveSyncError: null,
+            }));
+          } catch (e) {
+            this.setState({ driveSyncError: 'Duplicado no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e) });
+          }
+        }
         this.pulseSync();
       },
-      deleteAcqRecord: () => {
+      deleteAcqRecord: async () => {
         const page = activeAcqPage;
-        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.filter(r => r.id !== s.acqItemDialog.recordId) }), acqItemDialog: null }));
+        const recordId = s.acqItemDialog.recordId;
+        const rec = page.records.find(r => r.id === recordId);
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.filter(r => r.id !== recordId) }), acqItemDialog: null }));
+        if (s.googleSignedIn && rec && rec._row != null) {
+          try {
+            await this.deleteAcqRecordRemote(page.id, rec._row);
+            this.setState(x => ({
+              acqPages: x.acqPages.map(p => p.id !== page.id ? p : {
+                ...p, records: p.records.map(r => (r._row != null && r._row > rec._row) ? { ...r, _row: r._row - 1 } : r),
+              }),
+              driveSyncError: null,
+            }));
+          } catch (e) {
+            this.setState({ driveSyncError: 'Excluído no app, mas não deu pra excluir na planilha: ' + ((e && e.message) || e) });
+          }
+        }
         this.pulseSync();
       },
 
