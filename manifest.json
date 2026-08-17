@@ -1,7 +1,7 @@
 {
   "name": "Estoque & Aquisições — Farmácia",
   "short_name": "Estoque Farmácia",
-  "start_url": "./Estoque Farm%C3%A1cia.dc.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
