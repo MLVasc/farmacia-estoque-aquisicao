@@ -600,6 +600,7 @@ class Component extends DCLogic {
       const saved = JSON.parse(localStorage.getItem('gsi_token') || 'null');
       if (saved && saved.token && saved.expiry > Date.now() + 30000) {
         this.setState({ googleSignedIn: true, googleAccessToken: saved.token, googleTokenExpiry: saved.expiry });
+        this.loadAcqPagesFromSheet().catch(e => this.setState({ driveSyncError: (e && e.message) || String(e) }));
       }
     } catch (e) { /* localStorage indisponível ou dado corrompido — segue sem restaurar */ }
   }
@@ -853,6 +854,7 @@ class Component extends DCLogic {
           googleTokenExpiry: expiry, driveSyncError: null,
         });
         this.saveTokenLocal(resp.access_token, expiry);
+        this.loadAcqPagesFromSheet().catch(e => this.setState({ driveSyncError: (e && e.message) || String(e) }));
         pending.resolve(resp.access_token);
       },
     });
@@ -975,6 +977,37 @@ class Component extends DCLogic {
     const data = await res.json();
     const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
     return match ? Number(match[1]) : null;
+  }
+
+  // Relê as 5 abas de dados de Aquisições direto da planilha e substitui os
+  // registros no state — cada um já sai marcado com a linha real (_row), que é o
+  // que faltava nos registros carregados do retrato estático (aquisicoes-data.js)
+  // e por isso excluir/editar neles falhava sem avisar nada. Chamada ao logar, ao
+  // reabrir o app já logado, e no botão "Sincronizar agora".
+  async loadAcqPagesFromSheet() {
+    const token = await this.ensureAccessToken(false);
+    const pageIds = Object.keys(ACQ_TAB_NAMES);
+    const ranges = pageIds.map(id => "'" + ACQ_TAB_NAMES[id] + "'!A2:P2000");
+    const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values:batchGet?' +
+      ranges.map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) throw new Error('Não consegui reler a planilha de Aquisições: ' + await this.googleApiErrorText(res));
+    const data = await res.json();
+    const valueRanges = data.valueRanges || [];
+    const updated = {};
+    pageIds.forEach((pageId, i) => {
+      const keys = ACQ_FIELD_KEYS[pageId];
+      const rows = (valueRanges[i] && valueRanges[i].values) || [];
+      const records = [];
+      rows.forEach((row, ri) => {
+        if (!row || !row.some(c => c !== undefined && c !== null && String(c).trim() !== '')) return;
+        const rec = { id: pageId + '-' + (ri + 2), _row: ri + 2 };
+        keys.forEach((k, ki) => { rec[k] = row[ki] !== undefined ? row[ki] : ''; });
+        records.push(rec);
+      });
+      updated[pageId] = records;
+    });
+    this.setState(x => ({ acqPages: x.acqPages.map(p => updated[p.id] ? { ...p, records: updated[p.id] } : p) }));
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
@@ -1476,7 +1509,7 @@ class Component extends DCLogic {
       doSync: () => {
         if (!s.googleSignedIn) return;
         this.setState({ syncing: true });
-        this.ensureAccessToken(false)
+        this.loadAcqPagesFromSheet()
           .then(() => this.setState({ syncing: false, lastSyncMin: 0, driveSyncError: null }))
           .catch(e => this.setState({ syncing: false, driveSyncError: (e && e.message) || String(e) }));
       },
@@ -1556,6 +1589,8 @@ class Component extends DCLogic {
           }
         } else if (!s.googleSignedIn) {
           this.setState({ driveSyncError: 'Não conectado ao Google — a exclusão ficou só neste aparelho e volta se der F5. Entra com a conta em Configurações pra excluir na planilha de verdade.' });
+        } else {
+          this.setState({ driveSyncError: 'Esse registro ainda não tinha a linha da planilha identificada — a exclusão ficou só neste aparelho. Toca em "Sincronizar agora" nas Configurações e tenta excluir de novo.' });
         }
         this.pulseSync();
       },
@@ -1614,6 +1649,8 @@ class Component extends DCLogic {
         this.scheduleAcqFieldSync(pageId, rec._row, key, value);
       } else if (!s.googleSignedIn) {
         this.setState({ driveSyncError: 'Não conectado ao Google — essa edição fica só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.' });
+      } else {
+        this.setState({ driveSyncError: 'Esse registro ainda não tinha a linha da planilha identificada — a edição ficou só neste aparelho. Toca em "Sincronizar agora" nas Configurações e edita de novo.' });
       }
       this.pulseSync();
     }
