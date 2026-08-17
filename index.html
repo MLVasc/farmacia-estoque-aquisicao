@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://accounts.google.com/gsi/client" async onload="window.__gsiLoaded=true" onerror="window.__gsiLoadError=true"></script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -326,6 +326,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20c1.6-3.6 4.6-5.5 7-5.5s5.4 1.9 7 5.5"></path></svg>
               Entrar com a conta do Google
             </button>
+          </sc-if>
+
+          <sc-if value="{{ driveSyncError }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:10px 12px;margin-top:12px;border-radius:var(--radius-md);background:var(--color-accent-2-100);font:13px/1.4 var(--font-body);color:var(--color-accent-2-800)">{{ driveSyncError }}</div>
           </sc-if>
 
           <p style="font: 13px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 14px 0; text-align: justify">Qualquer alteração feita no app é enviada para a planilha, e qualquer alteração feita na planilha é refletida aqui automaticamente.</p>
@@ -778,8 +782,11 @@ class Component extends DCLogic {
 
   ensureTokenClient() {
     if (this._tokenClient) return this._tokenClient;
+    if (window.__gsiLoadError) {
+      throw new Error('Não consegui carregar accounts.google.com/gsi/client. Algum bloqueador de anúncios, VPN ou o navegador pode estar bloqueando esse endereço — tenta desativar ou trocar de navegador.');
+    }
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
-      throw new Error('Biblioteca do Google ainda não carregou — tenta de novo em alguns segundos.');
+      throw new Error('A biblioteca do Google ainda não carregou. Espera alguns segundos e tenta de novo — se continuar assim, algo está bloqueando accounts.google.com nesse navegador/rede.');
     }
     this._tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID, scope: GOOGLE_SCOPES, callback: () => {},
