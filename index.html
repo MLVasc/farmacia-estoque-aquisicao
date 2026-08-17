@@ -163,6 +163,10 @@
             <button type="button" class="btn btn-ghost" onClick="{{ openAcqYearClose }}" style="font-size:11px">Fechar {{ acqYear }} e iniciar {{ acqNextYear }}</button>
           </div>
 
+          <sc-if value="{{ driveSyncError }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:10px 12px;margin-bottom:10px;border-radius:var(--radius-md);background:var(--color-accent-2-100);font:13px/1.4 var(--font-body);color:var(--color-accent-2-800)">{{ driveSyncError }}</div>
+          </sc-if>
+
           <!-- Guide sub-page (Como Comprar) -->
           <sc-if value="{{ isGuidePage }}" hint-placeholder-val="{{ false }}">
             <p style="font:14px/1.5 var(--font-body);color:var(--color-neutral-700);margin:8px 0 16px">O objeto está em ata de registro de preços (CIAA / Solemp)?</p>
@@ -589,6 +593,15 @@ class Component extends DCLogic {
         acqPages: s.acqPages.map(p => byId[p.id] ? { ...p, records: byId[p.id] } : p),
       }));
     });
+    // Restaura a sessão do Google salva no aparelho, se ainda for válida — sem isso,
+    // fechar e reabrir o app (ou só dar F5) sempre exigia logar de novo antes de
+    // qualquer alteração poder ser sincronizada com o Drive.
+    try {
+      const saved = JSON.parse(localStorage.getItem('gsi_token') || 'null');
+      if (saved && saved.token && saved.expiry > Date.now() + 30000) {
+        this.setState({ googleSignedIn: true, googleAccessToken: saved.token, googleTokenExpiry: saved.expiry });
+      }
+    } catch (e) { /* localStorage indisponível ou dado corrompido — segue sem restaurar */ }
   }
 
   // Fallback seed shown until the real spreadsheet data (stock-data.js) loads.
@@ -794,6 +807,13 @@ class Component extends DCLogic {
   findCat(list, id) { return list.find(c => c.id === id); }
   pulseSync() { this.setState({ lastSyncMin: 0 }); }
 
+  saveTokenLocal(token, expiry) {
+    try { localStorage.setItem('gsi_token', JSON.stringify({ token, expiry })); } catch (e) { /* ok se não der */ }
+  }
+  clearTokenLocal() {
+    try { localStorage.removeItem('gsi_token'); } catch (e) { /* ok se não der */ }
+  }
+
   // --- Google Drive/Planilhas -------------------------------------------------
 
   ensureTokenClient() {
@@ -815,10 +835,12 @@ class Component extends DCLogic {
         this._pendingToken = null;
         if (!pending) return;
         if (resp.error) { pending.reject(new Error(resp.error)); return; }
+        const expiry = Date.now() + resp.expires_in * 1000;
         this.setState({
           googleSignedIn: true, googleAccessToken: resp.access_token,
-          googleTokenExpiry: Date.now() + resp.expires_in * 1000, driveSyncError: null,
+          googleTokenExpiry: expiry, driveSyncError: null,
         });
+        this.saveTokenLocal(resp.access_token, expiry);
         pending.resolve(resp.access_token);
       },
     });
@@ -1431,6 +1453,7 @@ class Component extends DCLogic {
       toggleGoogleSignIn: () => {
         if (s.googleSignedIn) {
           if (s.googleAccessToken && window.google) google.accounts.oauth2.revoke(s.googleAccessToken, () => {});
+          this.clearTokenLocal();
           this.setState({ googleSignedIn: false, googleAccessToken: null, googleTokenExpiry: 0 });
           return;
         }
@@ -1475,6 +1498,8 @@ class Component extends DCLogic {
             } catch (e) {
               this.setState({ driveSyncError: 'Salvo no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e) });
             }
+          } else {
+            this.setState({ driveSyncError: 'Não conectado ao Google — esse registro ficou salvo só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.' });
           }
         } else this.setState({ acqItemDialog: null });
         this.pulseSync();
@@ -1495,6 +1520,8 @@ class Component extends DCLogic {
           } catch (e) {
             this.setState({ driveSyncError: 'Duplicado no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e) });
           }
+        } else {
+          this.setState({ driveSyncError: 'Não conectado ao Google — essa cópia ficou salva só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.' });
         }
         this.pulseSync();
       },
@@ -1515,6 +1542,8 @@ class Component extends DCLogic {
           } catch (e) {
             this.setState({ driveSyncError: 'Excluído no app, mas não deu pra excluir na planilha: ' + ((e && e.message) || e) });
           }
+        } else if (!s.googleSignedIn) {
+          this.setState({ driveSyncError: 'Não conectado ao Google — a exclusão ficou só neste aparelho e volta se der F5. Entra com a conta em Configurações pra excluir na planilha de verdade.' });
         }
         this.pulseSync();
       },
@@ -1564,11 +1593,55 @@ class Component extends DCLogic {
       this.setState(st => ({ acqItemDialog: { ...st.acqItemDialog, draft: { ...st.acqItemDialog.draft, [key]: value } } }));
     } else {
       const pageId = s.acqItemDialog.pageId, recordId = s.acqItemDialog.recordId;
+      const page = s.acqPages.find(p => p.id === pageId);
+      const rec = page && page.records.find(r => r.id === recordId);
       this.setState(st => ({
         acqPages: st.acqPages.map(p => p.id !== pageId ? p : { ...p, records: p.records.map(r => r.id !== recordId ? r : { ...r, [key]: value }) })
       }));
+      if (s.googleSignedIn && rec && rec._row != null) {
+        this.scheduleAcqFieldSync(pageId, rec._row, key, value);
+      } else if (!s.googleSignedIn) {
+        this.setState({ driveSyncError: 'Não conectado ao Google — essa edição fica só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.' });
+      }
       this.pulseSync();
     }
+  }
+
+  // Letra de coluna A1 pra uma posição 0-indexada — as planilhas daqui têm no
+  // máximo 16 colunas (até P), então uma letra sempre basta.
+  columnLetter(idx) { return String.fromCharCode(65 + idx); }
+
+  async updateAcqFieldRemote(pageId, row, key, value) {
+    const tab = ACQ_TAB_NAMES[pageId];
+    const keys = ACQ_FIELD_KEYS[pageId];
+    if (!tab || !keys) return;
+    const colIdx = keys.indexOf(key);
+    if (colIdx === -1) return;
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + tab + "'!" + this.columnLetter(colIdx) + row;
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ range, values: [[value]] }),
+      }
+    );
+    if (!res.ok) throw new Error('Não consegui salvar esse campo na planilha (' + res.status + ')');
+  }
+
+  // Espera a digitação parar (700ms) antes de gravar — evita mandar uma
+  // requisição pra cada tecla digitada. Um timer por campo (página+linha+coluna),
+  // então editar vários campos ao mesmo tempo sincroniza cada um separadamente.
+  scheduleAcqFieldSync(pageId, row, key, value) {
+    this._acqSyncTimers = this._acqSyncTimers || {};
+    const timerKey = pageId + '|' + row + '|' + key;
+    clearTimeout(this._acqSyncTimers[timerKey]);
+    this._acqSyncTimers[timerKey] = setTimeout(() => {
+      this.updateAcqFieldRemote(pageId, row, key, value)
+        .then(() => this.setState({ driveSyncError: null }))
+        .catch(e => this.setState({ driveSyncError: 'Não deu pra salvar esse campo na planilha: ' + ((e && e.message) || e) }));
+    }, 700);
   }
 }
 
