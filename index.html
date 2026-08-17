@@ -807,6 +807,18 @@ class Component extends DCLogic {
   findCat(list, id) { return list.find(c => c.id === id); }
   pulseSync() { this.setState({ lastSyncMin: 0 }); }
 
+  // Extrai a mensagem real de erro do corpo da resposta da API do Google (ex.:
+  // "The caller does not have permission"), em vez de só mostrar o código HTTP.
+  async googleApiErrorText(res) {
+    try {
+      const body = await res.json();
+      const msg = body && body.error && (body.error.message || body.error.status);
+      return res.status + (msg ? ' — ' + msg : '');
+    } catch (e) {
+      return String(res.status);
+    }
+  }
+
   saveTokenLocal(token, expiry) {
     try { localStorage.setItem('gsi_token', JSON.stringify({ token, expiry })); } catch (e) { /* ok se não der */ }
   }
@@ -870,7 +882,7 @@ class Component extends DCLogic {
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newName, parents: [ESTOQUE_FOLDER_ID] }),
     });
-    if (!res.ok) throw new Error('Cópia no Drive falhou (' + res.status + ')');
+    if (!res.ok) throw new Error('Cópia no Drive falhou: ' + await this.googleApiErrorText(res));
     return (await res.json()).id;
   }
 
@@ -911,7 +923,7 @@ class Component extends DCLogic {
       'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '?fields=' + encodeURIComponent('sheets(properties(sheetId,title))'),
       { headers: { Authorization: 'Bearer ' + token } }
     );
-    if (!res.ok) throw new Error('Não consegui ler a estrutura da planilha (' + res.status + ')');
+    if (!res.ok) throw new Error('Não consegui ler a estrutura da planilha: ' + await this.googleApiErrorText(res));
     const data = await res.json();
     (data.sheets || []).forEach(sh => { this._sheetGids[sh.properties.title] = sh.properties.sheetId; });
     if (this._sheetGids[tabName] == null) throw new Error('Aba "' + tabName + '" não encontrada na planilha');
@@ -939,7 +951,7 @@ class Component extends DCLogic {
         }],
       }),
     });
-    if (!res.ok) throw new Error('Não consegui excluir na planilha (' + res.status + ')');
+    if (!res.ok) throw new Error('Não consegui excluir na planilha: ' + await this.googleApiErrorText(res));
   }
 
   // Acrescenta uma linha nova ao final da aba, na ordem de colunas de ACQ_FIELD_KEYS.
@@ -959,7 +971,7 @@ class Component extends DCLogic {
         body: JSON.stringify({ values }),
       }
     );
-    if (!res.ok) throw new Error('Não consegui gravar na planilha (' + res.status + ')');
+    if (!res.ok) throw new Error('Não consegui gravar na planilha: ' + await this.googleApiErrorText(res));
     const data = await res.json();
     const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
     return match ? Number(match[1]) : null;
@@ -1627,7 +1639,7 @@ class Component extends DCLogic {
         body: JSON.stringify({ range, values: [[value]] }),
       }
     );
-    if (!res.ok) throw new Error('Não consegui salvar esse campo na planilha (' + res.status + ')');
+    if (!res.ok) throw new Error('Não consegui salvar esse campo na planilha: ' + await this.googleApiErrorText(res));
   }
 
   // Espera a digitação parar (700ms) antes de gravar — evita mandar uma
