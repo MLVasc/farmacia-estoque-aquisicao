@@ -1,0 +1,15 @@
+{
+  "name": "Estoque & Aquisições — Farmácia",
+  "short_name": "Estoque Farmácia",
+  "start_url": "./Estoque Farm%C3%A1cia.dc.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f2f2",
+  "theme_color": "#f3f2f2",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

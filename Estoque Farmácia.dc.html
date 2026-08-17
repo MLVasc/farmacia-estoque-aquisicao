@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Estoque Farmácia</title>
+<meta name="theme-color" content="#f3f2f2">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Estoque Farmácia">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/broadsheet-d6eb062f-ed71-413b-95f3-2f2a550f4c08/styles.css">
+  <script src="_ds/broadsheet-d6eb062f-ed71-413b-95f3-2f2a550f4c08/_ds_bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <style>
+    body{margin:0;background:var(--color-neutral-200);font-family:var(--font-body)}
+    a{color:var(--color-accent-700)}
+    a:hover{color:var(--color-accent-900)}
+    ::selection{background:var(--color-accent-200)}
+  </style>
+</helmet>
+
+<div style="height:100dvh;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);position:relative;overflow:hidden">
+
+      <button type="button" onClick="{{ goConfig }}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:max(10px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 8px max(20px, env(safe-area-inset-left));box-sizing:border-box">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{ syncDotColor }};flex-shrink:0"></span>
+        <span style="font:italic 12px var(--font-body);color:var(--color-neutral-600)">{{ syncStripText }}</span>
+      </button>
+
+      <div style="flex:1;overflow:auto;padding:4px 20px 16px">
+
+        <!-- INÍCIO -->
+        <sc-if value="{{ isInicio }}" hint-placeholder-val="{{ true }}">
+          <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:4px">{{ monthLabel }} · {{ yearLabel }}</div>
+          <h1 style="font: 400 30px/1.1 var(--font-heading); margin: 0 0 20px; text-align: center">Divisão de Farmácia</h1>
+
+          <div style="display: flex; gap: 28px; margin-bottom: 22px; justify-content: center">
+            <button type="button" onClick="{{ goAlertas }}" style="all:unset;cursor:pointer">
+              <div style="font: 400 34px/1 var(--font-heading); color: {{ alertCountColor }}; text-decoration-line: none; text-underline-offset: 4px; text-align: center">{{ stats.alertCount }}</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Itens em Alerta</div>
+            </button>
+            <div>
+              <div style="font: 400 34px/1 var(--font-heading); text-align: center">{{ stats.totalItems }}</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Itens Cadastrados</div>
+            </div>
+            <div>
+              <div style="font: 400 34px/1 var(--font-heading); text-align: center">{{ stats.totalSaida }}</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Saídas do Mês</div>
+            </div>
+          </div>
+
+          <sc-if value="{{ rolloverBanner }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:10px 0;margin-bottom:16px;font:italic 13px var(--font-body);color:var(--color-accent-700)">Mês virado — {{ prevMonthLabel }} arquivado, {{ monthLabel }} iniciado com o estoque anterior.</div>
+          </sc-if>
+
+          
+
+          <div style="margin-bottom:24px;display:flex;flex-direction:column;align-items:center;text-align:center">
+            <div style="font: 600 10px var(--font-body); letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600); margin-bottom: 8px; width: 353px; height: 16px; text-align: left">Virada de mês</div>
+            <p style="font: 14px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 0 0 12px; max-width: 34ch; text-align: justify; width: 299px; height: 64px">Ao virar, o Estoque Atual de cada item vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram.</p><button type="button" class="btn btn-primary" onClick="{{ openRollover }}">Virar para {{ nextMonthLabel }}</button>
+          </div><div style="margin-bottom:8px">
+            <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Ações rápidas</div>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn btn-secondary" onClick="{{ goEstoque }}">Entrada Estoque</button>
+              <button type="button" class="btn btn-secondary" onClick="{{ goEstoque }}">Saída Estoque</button>
+              <button type="button" class="btn btn-secondary" onClick="{{ goNovoRegistroAquisicoes }}" style="width: 197px; height: 54px">Novo Registro&nbsp;<br>Aquisições</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom:8px">
+            <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Tarefas e anotações</div>
+            <sc-for list="{{ tasks }}" as="t" hint-placeholder-count="2">
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--color-neutral-300)">
+                <button type="button" onClick="{{ t.toggle }}" style="all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;border:1.5px solid {{ t.dotBorder }};background:{{ t.dotBg }};flex-shrink:0;margin-top:2px"></button>
+                <div style="flex:1;min-width:0">
+                  <div style="font:14px var(--font-body);color:var(--color-text);text-decoration:{{ t.strike }}">{{ t.texto }}</div>
+                  <sc-if value="{{ t.hasData }}" hint-placeholder-val="{{ false }}"><div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ t.data }}</div></sc-if>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon" aria-label="Remover" onClick="{{ t.remove }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noTasks }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:12px 0;font:italic 13px var(--font-body);color:var(--color-neutral-500)">Nenhuma tarefa por aqui.</div>
+            </sc-if>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <input class="input" placeholder="Nova tarefa ou anotação…" value="{{ newTaskText }}" onChange="{{ onNewTaskText }}" style="flex:1" />
+              <input class="input" type="date" value="{{ newTaskDate }}" onChange="{{ onNewTaskDate }}" style="width:auto" />
+            </div>
+            <button type="button" class="btn btn-secondary btn-block" onClick="{{ addTask }}" style="margin-top:8px">Adicionar</button>
+          </div>
+        </sc-if>
+
+        <!-- ESTOQUE -->
+        <sc-if value="{{ isEstoque }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+            <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700)">Estoque</div>
+            <select class="input" key="{{ viewMonthKey }}" style="width:auto;padding:4px 8px;font-size:12px" value="{{ viewMonthKey }}" onChange="{{ onViewMonthChange }}">
+              <sc-for list="{{ monthOptions }}" as="m" hint-placeholder-count="6"><option value="{{ m.label }}">{{ m.label }}</option></sc-for>
+            </select>
+          </div>
+          <h1 style="font:400 26px/1.1 var(--font-heading);margin:0 0 10px">{{ viewMonthLabel }} {{ viewYearLabel }}</h1>
+
+          <sc-if value="{{ isArchivedView }}" hint-placeholder-val="{{ false }}">
+            <div style="font:italic 12px var(--font-body);color:var(--color-neutral-600);margin-bottom:10px">Página arquivada — somente leitura.</div>
+          </sc-if>
+
+          <input class="input" placeholder="Buscar item…" value="{{ search }}" onChange="{{ onSearchChange }}" style="margin-bottom:12px">
+
+          <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:6px">
+            <sc-for list="{{ categoryTabs }}" as="cat" hint-placeholder-count="4">
+              <span class="tag {{ cat.tagClass }}" onClick="{{ cat.select }}" style="cursor:pointer;white-space:nowrap;flex-shrink:0">{{ cat.name }}</span>
+            </sc-for>
+            <sc-if value="{{ isCurrentView }}" hint-placeholder-val="{{ true }}">
+              <span class="tag tag-outline" onClick="{{ openAddPage }}" style="cursor:pointer;white-space:nowrap;flex-shrink:0">+ página</span>
+            </sc-if>
+          </div>
+
+          <div>
+            <sc-for list="{{ visibleItems }}" as="it" hint-placeholder-count="6">
+              <div onClick="{{ it.open }}" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300);cursor:pointer">
+                <div style="min-width:0">
+                  <div style="font:400 15px/1.3 var(--font-heading);color:var(--color-text)">{{ it.nome }}</div>
+                  <div style="font:12px var(--font-body);color:{{ it.metaColor }};margin-top:2px">{{ it.meta }}</div>
+                </div>
+                <div style="font:400 22px/1 var(--font-heading);color:{{ it.atualColor }};flex-shrink:0">{{ it.atual }}</div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noItems }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:24px 0;font:italic 13px var(--font-body);color:var(--color-neutral-500)">Nenhum item encontrado.</div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- AQUISIÇÕES -->
+        <sc-if value="{{ isAquisicoes }}" hint-placeholder-val="{{ false }}">
+          <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:4px">Saúde Aquisição · {{ acqYear }}</div>
+          <h1 style="font:400 26px/1.1 var(--font-heading);margin:0 0 10px">Aquisições</h1>
+
+          <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:6px">
+            <sc-for list="{{ acqPageTabs }}" as="p" hint-placeholder-count="6">
+              <span class="tag {{ p.tagClass }}" onClick="{{ p.select }}" style="cursor:pointer;white-space:nowrap;flex-shrink:0">{{ p.name }}</span>
+            </sc-for>
+            <span class="tag tag-outline" onClick="{{ openAcqAddPage }}" style="cursor:pointer;white-space:nowrap;flex-shrink:0">+ página</span>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+            <button type="button" class="btn btn-ghost" onClick="{{ openAcqYearClose }}" style="font-size:11px">Fechar {{ acqYear }} e iniciar {{ acqNextYear }}</button>
+          </div>
+
+          <!-- Guide sub-page (Como Comprar) -->
+          <sc-if value="{{ isGuidePage }}" hint-placeholder-val="{{ false }}">
+            <p style="font:14px/1.5 var(--font-body);color:var(--color-neutral-700);margin:8px 0 16px">O objeto está em ata de registro de preços (CIAA / Solemp)?</p>
+            <div style="display:flex;gap:8px;margin-bottom:18px">
+              <button type="button" class="{{ simBtnClass }}" onClick="{{ chooseSim }}">Sim — está em ata</button>
+              <button type="button" class="{{ naoBtnClass }}" onClick="{{ chooseNao }}">Não — dispensa</button>
+            </div>
+            <sc-if value="{{ showAcqSteps }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ acqSteps }}" as="step" hint-placeholder-count="4">
+                <div onClick="{{ step.toggle }}" style="display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300);cursor:pointer">
+                  <div style="width:22px;height:22px;border-radius:50%;border:1.5px solid {{ step.dotBorder }};background:{{ step.dotBg }};flex-shrink:0;margin-top:2px"></div>
+                  <div>
+                    <div style="font:400 15px/1.3 var(--font-heading);color:var(--color-text);text-decoration:{{ step.strike }}">{{ step.n }}. {{ step.text }}</div>
+                    <div style="font:italic 12.5px/1.4 var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ step.detail }}</div>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="margin-top:18px">
+                <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Conclusão comum aos dois fluxos</div>
+                <sc-for list="{{ acqConclusion }}" as="c" hint-placeholder-count="3">
+                  <div style="font:14px/1.6 var(--font-body);color:var(--color-neutral-700)">— {{ c.text }}</div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- Records sub-pages -->
+          <sc-if value="{{ isRecordsPage }}" hint-placeholder-val="{{ false }}">
+            <input class="input" placeholder="Buscar…" value="{{ acqSearch }}" onChange="{{ onAcqSearchChange }}" style="margin-bottom:10px">
+            <sc-for list="{{ acqVisibleRecords }}" as="rec" hint-placeholder-count="4">
+              <div onClick="{{ rec.open }}" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300);cursor:pointer">
+                <div style="min-width:0">
+                  <div style="font:400 15px/1.3 var(--font-heading);color:var(--color-text)">{{ rec.title }}</div>
+                  <sc-if value="{{ rec.hasSubtitle }}" hint-placeholder-val="{{ false }}"><div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ rec.subtitle }}</div></sc-if>
+                </div>
+                <sc-if value="{{ rec.hasTag }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral" style="flex-shrink:0">{{ rec.tag }}</span></sc-if>
+              </div>
+            </sc-for>
+            <sc-if value="{{ acqNoRecords }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:24px 0;font:italic 13px var(--font-body);color:var(--color-neutral-500)">Nenhum registro encontrado.</div>
+            </sc-if>
+            <sc-if value="{{ pageSupportsNotes }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:18px">
+                <label style="font:12px var(--font-body);color:var(--color-neutral-600);display:block;margin-bottom:6px">Notas de rodapé</label>
+                <textarea class="input" rows="4" value="{{ acqNotes }}" onChange="{{ onAcqNotesChange }}" placeholder="Observações gerais desta página…"></textarea>
+              </div>
+            </sc-if>
+          </sc-if>
+        </sc-if>
+
+        <!-- ALERTAS -->
+        <sc-if value="{{ isAlertas }}" hint-placeholder-val="{{ false }}">
+          <button type="button" onClick="{{ goInicio }}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:12px;color:var(--color-neutral-600)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+            <span style="font:12px var(--font-body)">Início</span>
+          </button>
+          <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-2-700);margin-bottom:4px">{{ monthLabel }} · {{ yearLabel }}</div>
+          <h1 style="font:400 26px/1.1 var(--font-heading);margin:0 0 14px">Itens em alerta</h1>
+          <sc-for list="{{ alertItems }}" as="it" hint-placeholder-count="4">
+            <div onClick="{{ it.open }}" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300);cursor:pointer">
+              <div style="min-width:0">
+                <div style="font:400 15px/1.3 var(--font-heading);color:var(--color-text)">{{ it.nome }}</div>
+                <div style="font:12px var(--font-body);color:{{ it.metaColor }};margin-top:2px">{{ it.meta }}</div>
+              </div>
+              <div style="font:400 22px/1 var(--font-heading);color:{{ it.atualColor }};flex-shrink:0">{{ it.atual }}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noAlertItems }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:24px 0;font:italic 13px var(--font-body);color:var(--color-neutral-500)">Nenhum item em alerta.</div>
+          </sc-if>
+        </sc-if>
+
+        <!-- RELATÓRIOS -->
+        <sc-if value="{{ isRelatorios }}" hint-placeholder-val="{{ false }}">
+          <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:4px">Consumo mensal</div>
+          <h1 style="font:400 26px/1.1 var(--font-heading);margin:0 0 14px">Relatórios</h1>
+
+          <div class="field" style="margin-bottom:12px">
+            <label>Mês de referência</label>
+            <select class="input" key="{{ reportMonthLabel }}" value="{{ reportMonthLabel }}" onChange="{{ onReportMonthChange }}">
+              <sc-for list="{{ reportMonthOptions }}" as="m" hint-placeholder-count="7"><option value="{{ m.label }}">{{ m.label }}</option></sc-for>
+            </select>
+          </div>
+
+          <sc-if value="{{ isGeneralReport }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom:14px">
+              <label style="font:12px var(--font-body);color:var(--color-neutral-600);display:block;margin-bottom:6px">Anos incluídos no relatório geral</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ reportYearChips }}" as="ry" hint-placeholder-count="3">
+                  <span class="tag {{ ry.tagClass }}" onClick="{{ ry.toggle }}" style="cursor:pointer">{{ ry.year }}</span>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="margin-bottom:14px">
+            <label style="font:12px var(--font-body);color:var(--color-neutral-600);display:block;margin-bottom:6px">Categorias</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ reportCatChips }}" as="rc" hint-placeholder-count="6">
+                <span class="tag {{ rc.tagClass }}" onClick="{{ rc.toggle }}" style="cursor:pointer">{{ rc.name }}</span>
+              </sc-for>
+            </div>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-block" onClick="{{ generateReport }}" style="margin-bottom:16px">Gerar PDF do consumo</button>
+
+          <sc-if value="{{ reportGenerated }}" hint-placeholder-val="{{ false }}">
+            <div class="card elev-sm" style="padding:16px">
+              <div class="card-kicker">{{ reportKicker }}</div>
+              <div class="card-title">Relatório de consumo</div>
+              <sc-for list="{{ reportLines }}" as="rl" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
+                  <span>{{ rl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ rl.saida }}</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{ reportEmpty }}" hint-placeholder-val="{{ false }}">
+                <div style="font:italic 13px var(--font-body);color:var(--color-neutral-500);padding:6px 0">Sem saídas registradas em {{ reportMonthLabel }} para as categorias selecionadas.</div>
+              </sc-if>
+              <div style="display:flex;justify-content:space-between;font:600 14px var(--font-body);padding-top:10px">
+                <span>Total consumido</span><span>{{ reportTotal }}</span>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:14px">
+                <button type="button" class="btn btn-primary" onClick="{{ downloadReportPdf }}">Baixar PDF</button>
+                <button type="button" class="btn btn-secondary" onClick="{{ shareReportPdf }}">{{ shareLabel }}</button>
+              </div>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <!-- CONFIG -->
+        <sc-if value="{{ isConfig }}" hint-placeholder-val="{{ false }}">
+          <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:4px">Integração</div>
+          <h1 style="font:400 26px/1.1 var(--font-heading);margin:0 0 16px">Google Planilhas</h1>
+
+          <sc-if value="{{ googleSignedIn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--color-neutral-300);margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:34px;height:34px;border-radius:50%;background:var(--color-accent-100);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-700)" stroke-width="1.8"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20c1.6-3.6 4.6-5.5 7-5.5s5.4 1.9 7 5.5"></path></svg></div>
+                <div style="font:14px var(--font-body)">Conta do Google conectada</div>
+              </div>
+              <button type="button" class="btn btn-ghost" onClick="{{ toggleGoogleSignIn }}">Sair</button>
+            </div>
+            <div style="padding:14px 0;border-bottom:1px solid var(--color-neutral-300)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <a href="https://docs.google.com/spreadsheets/d/1fls8HXcMKU2WRexcP55216bLJRKwPa0gXfaDmtaZE_E/edit?usp=drive_link" target="_blank" style="font:400 15px var(--font-heading);text-decoration:none">Saúde Aquisição {{ acqYear }}</a>
+                <span class="tag tag-accent">Conectado</span>
+              </div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Sincronização bidirecional · há {{ lastSyncMin }} min</div>
+            </div>
+            <div style="padding:14px 0;border-bottom:1px solid var(--color-neutral-300)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <a href="https://drive.google.com/drive/folders/1MOErNRNb5yCUb9H8nu-9Gb-uO0UwrasE?usp=drive_link" target="_blank" style="font:400 15px var(--font-heading);text-decoration:none">Estoque Farmácia (pasta no Drive)</a>
+                <span class="tag tag-accent">Conectado</span>
+              </div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:4px">Sincronização bidirecional · há {{ lastSyncMin }} min</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ googleNotSignedIn }}" hint-placeholder-val="{{ true }}">
+            <p style="font:14px/1.5 var(--font-body);color:var(--color-neutral-700);margin:0 0 14px">Entre com a conta do Google que tem acesso às planilhas para ativar a sincronização.</p>
+            <button type="button" class="btn btn-primary btn-block" onClick="{{ toggleGoogleSignIn }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20c1.6-3.6 4.6-5.5 7-5.5s5.4 1.9 7 5.5"></path></svg>
+              Entrar com a conta do Google
+            </button>
+          </sc-if>
+
+          <p style="font: 13px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 14px 0; text-align: justify">Qualquer alteração feita no app é enviada para a planilha, e qualquer alteração feita na planilha é refletida aqui automaticamente.</p>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0">
+            <div>
+              <div style="font:400 15px var(--font-heading)">Sincronização automática</div>
+              <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">Toda alteração é enviada à planilha</div>
+            </div>
+            <label class="radio" style="gap:6px"><input type="checkbox" checked="{{ autoSync }}" onChange="{{ toggleAutoSync }}"><span class="dot"></span></label>
+          </div>
+
+          <button type="button" class="btn btn-secondary btn-block" onClick="{{ doSync }}">{{ syncButtonLabel }}</button>
+        </sc-if>
+
+      </div>
+
+      <sc-if value="{{ showFab }}" hint-placeholder-val="{{ false }}">
+        <button type="button" class="btn btn-primary btn-icon" aria-label="Novo item" onClick="{{ fabAction }}" style="position:absolute;right:20px;bottom:78px;width:52px;height:52px;border-radius:50%;box-shadow:var(--shadow-lg)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+      </sc-if>
+
+      <!-- BOTTOM TABS: Início · Aquisições · Estoque · Relatórios -->
+      <div style="display:flex;border-top:1px solid var(--color-neutral-300);padding:8px 4px max(12px, env(safe-area-inset-bottom));background:var(--color-bg);flex-shrink:0">
+        <button type="button" onClick="{{ goInicio }}" style="all:unset;cursor:pointer;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:{{ tabColor.inicio }}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11L12 3l9 8"></path><path d="M5 10v10h14V10"></path></svg>
+          <span style="font:11px var(--font-body)">Início</span>
+        </button>
+        <button type="button" onClick="{{ goAquisicoes }}" style="all:unset;cursor:pointer;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:{{ tabColor.aquisicoes }}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"></rect><path d="M9 3h6v3H9z"></path><path d="M8.5 11.5l2 2L15.5 8.5" stroke-linecap="round"></path></svg>
+          <span style="font:11px var(--font-body)">Aquisições</span>
+        </button>
+        <button type="button" onClick="{{ goEstoque }}" style="all:unset;cursor:pointer;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:{{ tabColor.estoque }}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg>
+          <span style="font:11px var(--font-body)">Estoque</span>
+        </button>
+        <button type="button" onClick="{{ goRelatorios }}" style="all:unset;cursor:pointer;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:{{ tabColor.relatorios }}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6 2h9l4 4v16H6z"></path><path d="M9 12h6M9 16h6M9 8h3" stroke-linecap="round"></path></svg>
+          <span style="font:11px var(--font-body)">Relatórios</span>
+        </button>
+      </div>
+
+      <!-- ESTOQUE ITEM DIALOG -->
+      <sc-if value="{{ itemDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow:hidden;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-shrink:0">
+              <div class="dialog-title">{{ dlg.headerLabel }}</div>
+              <button type="button" class="btn btn-ghost btn-icon" aria-label="Fechar" onClick="{{ closeItemDialog }}" style="flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"></path></svg></button>
+            </div>
+            <div class="dialog-body" style="display:grid;gap:10px;overflow-y:auto;flex:1;min-height:0">
+              <div class="field"><label>Nome</label><input class="input" value="{{ dlg.nome }}" onChange="{{ onDlgNome }}" readOnly="{{ isArchivedView }}"></div>
+              <div class="field"><label>Validade</label><input class="input" placeholder="mm/aa" value="{{ dlg.validade }}" onChange="{{ onDlgValidade }}" readOnly="{{ isArchivedView }}"></div>
+              <div class="field"><label>Estoque inicial</label><input class="input" type="number" value="{{ dlg.inicial }}" onChange="{{ onDlgInicial }}" readOnly="{{ isArchivedView }}"></div>
+              <div class="field"><label>Saída</label><input class="input" type="number" value="{{ dlg.saida }}" onChange="{{ onDlgSaida }}" readOnly="{{ isArchivedView }}"></div>
+              <div class="field"><label>Recebidos</label><input class="input" type="number" value="{{ dlg.recebidos }}" onChange="{{ onDlgRecebidos }}" readOnly="{{ isArchivedView }}"></div>
+              <div style="display:flex;justify-content:space-between;padding-top:4px;font:600 14px var(--font-body)"><span>Estoque atual</span><span style="color:{{ dlg.atualColor }}">{{ dlg.atualPreview }}</span></div>
+            </div>
+            <div class="dialog-actions" style="flex-wrap:wrap;flex-shrink:0">
+              <sc-if value="{{ dlg.canDuplicate }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn btn-ghost" onClick="{{ duplicateItem }}">Duplicar</button></sc-if>
+              <sc-if value="{{ dlg.canDelete }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn btn-ghost" onClick="{{ deleteItem }}">Excluir</button></sc-if>
+              <button type="button" class="btn btn-secondary" onClick="{{ closeItemDialog }}">{{ closeLabel }}</button>
+              <sc-if value="{{ isCurrentView }}" hint-placeholder-val="{{ true }}"><button type="button" class="btn btn-primary" onClick="{{ saveItem }}">Salvar</button></sc-if>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ addPageDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow-y:auto">
+            <div class="dialog-title">Nova página de estoque</div>
+            <div class="dialog-body" style="display:grid;gap:12px">
+              <div class="seg" role="radiogroup">
+                <label class="seg-opt"><input type="radio" name="pgmode" checked="{{ addPageBlankChecked }}" onChange="{{ setAddPageBlank }}">Categoria em branco</label>
+                <label class="seg-opt"><input type="radio" name="pgmode" checked="{{ addPageDupChecked }}" onChange="{{ setAddPageDup }}">Duplicar "{{ activeCategoryName }}"</label>
+              </div>
+              <div class="field"><label>Nome da página</label><input class="input" value="{{ addPageName }}" onChange="{{ onAddPageName }}"></div>
+            </div>
+            <div class="dialog-actions">
+              <button type="button" class="btn btn-secondary" onClick="{{ closeAddPage }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ createPage }}">Criar página</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ rolloverDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow-y:auto">
+            <div class="dialog-title">Virar para {{ nextMonthLabel }}?</div>
+            <div class="dialog-body">O Estoque Atual de cada item de {{ monthLabel }} vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram em todas as categorias. {{ monthLabel }} é arquivado e continua acessível pelo seletor de mês em Estoque e em Relatórios.</div>
+            <div class="dialog-actions">
+              <button type="button" class="btn btn-secondary" onClick="{{ closeRollover }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ confirmRollover }}">Virar mês</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ acqYearCloseDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow-y:auto">
+            <div class="dialog-title">Fechar {{ acqYear }} e iniciar {{ acqNextYear }}?</div>
+            <div class="dialog-body">Isso gera e baixa um PDF completo de Aquisições {{ acqYear }} (Como Comprar, Aquisições, Dispensa, Necessidades, Ar Condicionado e Metas) pro seu celular — guarde esse arquivo pra consultar depois. As páginas de dados (Aquisições, Dispensa, Necessidades, Ar Condicionado, Metas) ficam em branco pra começar {{ acqNextYear }}. Como Comprar não muda.</div>
+            <div class="dialog-actions">
+              <button type="button" class="btn btn-secondary" onClick="{{ closeAcqYearClose }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ confirmAcqYearClose }}">Gerar PDF e fechar {{ acqYear }}</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- AQUISIÇÕES record dialog -->
+      <sc-if value="{{ acqDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow:hidden;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-shrink:0">
+              <div class="dialog-title">{{ acqDlg.headerLabel }}</div>
+              <button type="button" class="btn btn-ghost btn-icon" aria-label="Fechar" onClick="{{ closeAcqDialog }}" style="flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"></path></svg></button>
+            </div>
+            <div class="dialog-body" style="display:grid;gap:10px;overflow-y:auto;flex:1;min-height:0">
+              <sc-for list="{{ acqDlg.fields }}" as="f" hint-placeholder-count="6">
+                <div class="field"><label>{{ f.label }}</label><input class="input" type="{{ f.type }}" value="{{ f.value }}" onChange="{{ f.onChange }}"></div>
+              </sc-for>
+            </div>
+            <div class="dialog-actions" style="flex-wrap:wrap;flex-shrink:0">
+              <sc-if value="{{ acqDlg.canDuplicate }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn btn-ghost" onClick="{{ duplicateAcqRecord }}">Duplicar</button></sc-if>
+              <sc-if value="{{ acqDlg.canDelete }}" hint-placeholder-val="{{ false }}"><button type="button" class="btn btn-ghost" onClick="{{ deleteAcqRecord }}">Excluir</button></sc-if>
+              <button type="button" class="btn btn-secondary" onClick="{{ closeAcqDialog }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ saveAcqRecord }}">Salvar</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ acqAddPageDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" style="position:absolute;inset:0">
+          <div class="dialog" role="dialog" aria-modal="true" style="max-height:calc(100% - 24px);overflow-y:auto">
+            <div class="dialog-title">Nova página em Aquisições</div>
+            <div class="dialog-body" style="display:grid;gap:12px">
+              <div class="seg" role="radiogroup">
+                <label class="seg-opt"><input type="radio" name="apgmode" checked="{{ acqAddPageBlankChecked }}" onChange="{{ setAcqAddPageBlank }}">Página em branco</label>
+                <label class="seg-opt"><input type="radio" name="apgmode" checked="{{ acqAddPageDupChecked }}" onChange="{{ setAcqAddPageDup }}">Duplicar "{{ activeAcqPageName }}"</label>
+              </div>
+              <div class="field"><label>Nome da página</label><input class="input" value="{{ acqAddPageName }}" onChange="{{ onAcqAddPageName }}"></div>
+            </div>
+            <div class="dialog-actions">
+              <button type="button" class="btn btn-secondary" onClick="{{ closeAcqAddPage }}">Cancelar</button>
+              <button type="button" class="btn btn-primary" onClick="{{ createAcqPage }}">Criar página</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    screen: 'inicio',
+    monthIndex: 5,
+    months: ['Março','Abril','Maio','Junho','Julho','Agosto'],
+    years: [2026,2026,2026,2026,2026,2026],
+    activeCategory: 'inj',
+    search: '',
+    categories: this.seedCurrent(),
+    history: this.seedHistory(),
+    viewMonthIndex: 5,
+    itemDialog: null,
+    addPageDialog: null,
+    rolloverDialogOpen: false,
+    rolloverBanner: false,
+    reportMonthIndex: 5,
+    reportCats: { inj: true, comp: true, pom: true, ctrl: true, mat: true, sor: true },
+    reportYears: {},
+    reportGenerated: false,
+    acqBranch: null,
+    acqDone: {},
+    acqPages: this.seedAcqPages(),
+    acqYear: 2026,
+    acqYearCloseDialogOpen: false,
+    activeAcqPage: 'aquisicoes',
+    acqSearch: '',
+    acqItemDialog: null,
+    acqAddPageDialog: null,
+    autoSync: true,
+    syncing: false,
+    lastSyncMin: 4,
+    googleSignedIn: false,
+    reportPeriod: 'Agosto 2026',
+    tasks: [],
+    newTaskText: '',
+    newTaskDate: '',
+    dataLoaded: false,
+  };
+
+  componentDidMount() {
+    import('./stock-data.js').then(m => {
+      const cur = m.MONTHS[m.CURRENT_MONTH_INDEX];
+      const hist = {};
+      m.MONTHS.forEach(lbl => { if (lbl !== cur) hist[lbl + ' 2026'] = m.CATEGORIES_BY_MONTH[lbl]; });
+      this.setState({
+        months: m.MONTHS, years: m.MONTHS.map(() => 2026), monthIndex: m.CURRENT_MONTH_INDEX, viewMonthIndex: m.CURRENT_MONTH_INDEX, reportPeriod: cur + ' 2026',
+        categories: m.CATEGORIES_BY_MONTH[cur], history: hist, activeCategory: m.CATEGORIES_BY_MONTH[cur][0].id, dataLoaded: true,
+      });
+    });
+    // Substitui os registros de exemplo pelos dados reais da planilha "Saúde Aquisição 2026"
+    // (Drive), mantendo os campos/rótulos já definidos em seedAcqPages().
+    import('./aquisicoes-data.js').then(m => {
+      const byId = m.ACQ_RECORDS;
+      this.setState(s => ({
+        acqPages: s.acqPages.map(p => byId[p.id] ? { ...p, records: byId[p.id] } : p),
+      }));
+    });
+  }
+
+  // Fallback seed shown until the real spreadsheet data (stock-data.js) loads.
+  seedCurrent() {
+    return [
+      { id: 'inj', name: 'Injetáveis', unit: 'UN', items: [
+        { id: 'i1', nome: 'Adrenalina', validade: '01/27', inicial: 15, saida: 20, recebidos: 0, expired: false },
+        { id: 'i2', nome: 'Adrenalina', validade: '04/2027', inicial: 30, saida: 0, recebidos: 0, expired: false },
+        { id: 'i3', nome: 'Atropina', validade: '08/27', inicial: 9, saida: 0, recebidos: 0, expired: false },
+        { id: 'i4', nome: 'Água destilada 10ml', validade: '02/02/27', inicial: 390, saida: 0, recebidos: 0, expired: false },
+        { id: 'i5', nome: 'Amiodarona inj', validade: '09/26', inicial: 24, saida: 0, recebidos: 0, expired: false },
+        { id: 'i6', nome: 'Bicarbonato de Na+', validade: '08/26', inicial: 25, saida: 0, recebidos: 0, expired: false },
+        { id: 'i7', nome: 'Bromoprida amp', validade: '04/27', inicial: 0, saida: 100, recebidos: 0, expired: false },
+        { id: 'i8', nome: 'Buscopam simples', validade: '04/27', inicial: 100, saida: 0, recebidos: 0, expired: false },
+      ]},
+      { id: 'comp', name: 'Comprimidos', unit: 'UN', items: [
+        { id: 'c1', nome: 'AAS 100mg', validade: '46566', inicial: 460, saida: 40, recebidos: 0, expired: false },
+        { id: 'c2', nome: 'Acetilcisteína', validade: '01/27', inicial: 16, saida: 16, recebidos: 0, expired: false },
+        { id: 'c3', nome: 'Acetilcisteína', validade: '06/27', inicial: 60, saida: 45, recebidos: 0, expired: false },
+        { id: 'c4', nome: 'Amoxicilina 500mg', validade: '46476', inicial: 0, saida: 0, recebidos: 0, expired: false },
+        { id: 'c5', nome: 'Bromoprida 10mg', validade: '10/26', inicial: 200, saida: 20, recebidos: 0, expired: false },
+        { id: 'c6', nome: 'Buscopam composto', validade: '46592', inicial: 80, saida: 20, recebidos: 0, expired: false },
+        { id: 'c7', nome: 'Buscopam simples', validade: '46480', inicial: 360, saida: 40, recebidos: 0, expired: false },
+      ]},
+      { id: 'pom', name: 'Pomadas / Gotas', unit: 'UN', items: [
+        { id: 'p1', nome: 'Dexametasona creme', validade: '12/26', inicial: 5, saida: 0, recebidos: 0, expired: false },
+        { id: 'p2', nome: 'Dipirona gota', validade: '06/26', inicial: 4, saida: 0, recebidos: 0, expired: false },
+        { id: 'p3', nome: 'Dipirona gota', validade: '04/27', inicial: 0, saida: 0, recebidos: 10, expired: false },
+        { id: 'p4', nome: 'Ibuprofeno gota', validade: '07/26', inicial: 1, saida: 0, recebidos: 0, expired: false },
+        { id: 'p5', nome: 'Ipatrópio fr', validade: '05/26', inicial: 2, saida: 0, recebidos: 0, expired: false },
+        { id: 'p6', nome: 'Lidocaína gel', validade: '05/26', inicial: 3, saida: 0, recebidos: 0, expired: false },
+        { id: 'p7', nome: 'Neomicina', validade: '02/27', inicial: 6, saida: 2, recebidos: 0, expired: false },
+        { id: 'p8', nome: 'Salbutamol', validade: '11/26', inicial: 3, saida: 0, recebidos: 2, expired: false },
+      ]},
+      { id: 'ctrl', name: 'Controlada', unit: 'UN', items: [
+        { id: 't1', nome: 'Benzetacil fr-amp', validade: '02/27', inicial: 72, saida: 11, recebidos: 0, expired: false },
+        { id: 't2', nome: 'Clonazepam 0,5mg', validade: '11/26', inicial: 30, saida: 30, recebidos: 0, expired: false },
+        { id: 't3', nome: 'Diazepam amp', validade: '11/26', inicial: 5, saida: 0, recebidos: 0, expired: false },
+        { id: 't4', nome: 'Fenitoína sódica', validade: '09/26', inicial: 54, saida: 0, recebidos: 0, expired: false },
+        { id: 't5', nome: 'Fenobarbital', validade: '09/26', inicial: 22, saida: 0, recebidos: 0, expired: false },
+        { id: 't6', nome: 'Fentanil', validade: '03/26', inicial: 6, saida: 0, recebidos: 0, expired: true },
+        { id: 't7', nome: 'Morfina', validade: '07/26', inicial: 50, saida: 0, recebidos: 0, expired: true },
+        { id: 't8', nome: 'Tramal amp', validade: '04/26', inicial: 167, saida: 0, recebidos: 0, expired: true },
+      ]},
+      { id: 'mat', name: 'Material Cirúrgico', unit: 'UN/PCT/ROLO', items: [
+        { id: 'm1', nome: 'Abaixador de língua', validade: '', inicial: 300, saida: 0, recebidos: 0, expired: false },
+        { id: 'm2', nome: 'Agulha 13x4,5', validade: '09/27', inicial: 64, saida: 0, recebidos: 0, expired: false },
+        { id: 'm3', nome: 'Agulha 13x4,5', validade: '46476', inicial: 200, saida: 0, recebidos: 0, expired: false },
+        { id: 'm4', nome: 'Agulha 25x7,0', validade: '01/29', inicial: 0, saida: 0, recebidos: 0, expired: false },
+        { id: 'm5', nome: 'Agulha 25x7,0', validade: '02/29', inicial: 700, saida: 200, recebidos: 0, expired: false },
+        { id: 'm6', nome: 'Agulha 30x7,0', validade: '47628', inicial: 700, saida: 0, recebidos: 0, expired: false },
+        { id: 'm7', nome: 'Agulha 30x8,0', validade: '46997', inicial: 1000, saida: 0, recebidos: 0, expired: false },
+      ]},
+      { id: 'sor', name: 'Soros', unit: 'UN', items: [
+        { id: 's1', nome: 'Soro glicosado 5%', validade: '46325', inicial: 20, saida: 0, recebidos: 0, expired: false },
+        { id: 's2', nome: 'Soro fisio 100ml', validade: '07/27', inicial: 540, saida: 190, recebidos: 0, expired: false },
+        { id: 's3', nome: 'Soro fisio 500ml', validade: '46507', inicial: 105, saida: 75, recebidos: 0, expired: false },
+        { id: 's4', nome: 'Soro fisio 500ml', validade: '46568', inicial: 300, saida: 0, recebidos: 0, expired: false },
+        { id: 's5', nome: 'Ringer lactato', validade: '46446', inicial: 180, saida: 0, recebidos: 0, expired: false },
+      ]},
+    ];
+  }
+
+  // Illustrative past-month snapshots (Março–Julho) so the month selector has data to show.
+  seedHistory() {
+    const base = this.seedCurrent();
+    const months = ['Março','Abril','Maio','Junho','Julho'];
+    const hist = {};
+    months.forEach((mLabel, mi) => {
+      const factor = (mi + 1) / 6;
+      hist[mLabel] = base.map(c => ({
+        ...c,
+        items: c.items.map((it, ii) => {
+          const saida = Math.round(it.saida * factor * (0.6 + 0.1 * (ii % 3)));
+          const recebidos = Math.round(it.recebidos * factor);
+          const inicial = Math.max(0, it.inicial - Math.round((it.saida - saida) * 0.4));
+          return { ...it, inicial, saida, recebidos, expired: it.expired };
+        }),
+      }));
+    });
+    return hist;
+  }
+
+  seedAcqPages() {
+    return [
+      { id: 'comprar', name: 'Como Comprar', type: 'guide' },
+      { id: 'aquisicoes', name: 'Aquisições', type: 'records',
+        listConfig: { title: 'descricao', subtitle: 'empresa', tag: 'statusEmpenho' },
+        fields: [
+          { key: 'par', label: 'PAR' }, { key: 'solemp', label: 'Solemp' }, { key: 'empresa', label: 'Empresa' },
+          { key: 'descricao', label: 'Descrição' }, { key: 'statusSolemp', label: 'Status Solemp' },
+          { key: 'empenho', label: 'Empenho' }, { key: 'statusEmpenho', label: 'Status Empenho' },
+          { key: 'valorEmp', label: 'Valor Empenho' }, { key: 'obs', label: 'Observação' },
+          { key: 'contato', label: 'Contato' }, { key: 'respondido', label: 'Respondido' },
+          { key: 'chegadaMaterial', label: 'Chegada material no setor' }, { key: 'nfeNum', label: 'NFe Nº' },
+          { key: 'entradaNfe', label: 'Entrada NFe' }, { key: 'statusNfe', label: 'Status NFe' }, { key: 'envioNfe', label: 'Envio NFe' },
+        ],
+        notes: '',
+        records: [
+          { id: 'a2', par: 'MAI', solemp: '172', empresa: 'MARCK TECNOLOGIA', descricao: 'Cadeira diretor', statusSolemp: 'Empenhada', empenho: '238', statusEmpenho: 'Empenhada', valorEmp: 'R$ 654,00', obs: 'Aguardando pg NFe anterior', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a3', par: 'ABR', solemp: '173', empresa: 'MP COMÉRCIO', descricao: 'Armário de escritório, cadeira giratória', statusSolemp: 'Empenhada', empenho: '239', statusEmpenho: 'Empenhada', valorEmp: 'R$ 3.299,00', obs: 'Aguardando resposta do fornecedor', contato: 'Feito', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a4', par: 'ABR', solemp: '176', empresa: 'SUPER ÁGUA', descricao: 'Purificador de água', statusSolemp: 'Empenhada', empenho: '240', statusEmpenho: 'Cancelada', valorEmp: 'R$ 1.500,00', obs: 'Divergência de item. Parte do recurso usado como complemento da dispensa dos esfigmos e o bebedouro do PAR de maio usado na compra da TV EMP 401 e microondas', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a11', par: 'ABR', solemp: '226', empresa: 'FARIA RODRIGUES', descricao: 'Mesa redonda, cadeira palito', statusSolemp: 'Empenhada', empenho: '241', statusEmpenho: 'Empenhada', valorEmp: 'R$ 1.581,20', obs: '', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '', nfeNum: '4356', entradaNfe: '11/06/2026', statusNfe: 'Enviada', envioNfe: '17/06/2026' },
+          { id: 'a12', par: 'ABR', solemp: '228', empresa: 'UNIVERSO ATACADISTA', descricao: 'Cafeteira', statusSolemp: 'Empenhada', empenho: '242', statusEmpenho: 'Cancelada', valorEmp: 'R$ 186,40', obs: 'Cancelado pela Com Waleska — impedido de licitar', contato: 'Feito', respondido: 'Não', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a13', par: 'ABR', solemp: '225', empresa: 'DECOINTER', descricao: 'Persianas — farmácia e vestiário', statusSolemp: 'Empenhada', empenho: '246', statusEmpenho: 'Empenhada', valorEmp: 'R$ 630,00', obs: '', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '23/07/2026', nfeNum: '', entradaNfe: '05/08/2026', statusNfe: 'A Enviar', envioNfe: '' },
+          { id: 'a14', par: 'MAI', solemp: '227', empresa: 'JR2 COMÉRCIO', descricao: 'Suporte TV', statusSolemp: 'Empenhada', empenho: '333', statusEmpenho: 'Empenhada', valorEmp: 'R$ 178,00', obs: '', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '09/07/2026', nfeNum: '71', entradaNfe: '09/07/2026', statusNfe: 'Enviada', envioNfe: '09/07/2026' },
+          { id: 'a15', par: 'MAI', solemp: '175', empresa: 'MALUMA COMERCIAL', descricao: 'Quadro branco JRS', statusSolemp: 'Empenhada', empenho: '334', statusEmpenho: 'Empenhada', valorEmp: 'R$ 115,10', obs: '', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '', nfeNum: '66', entradaNfe: '29/06/2026', statusNfe: 'Enviada', envioNfe: '06/07/2026' },
+          { id: 'a16', par: 'MAI', solemp: '342', empresa: 'MP COMÉRCIO', descricao: 'Conjunto sofá', statusSolemp: 'Empenhada', empenho: '345', statusEmpenho: 'Cancelada', valorEmp: 'R$ 1.950,00', obs: 'Divergência de item — saldo na TV Solemp 460', contato: 'A fazer', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a17', par: 'MAI', solemp: '276', empresa: 'G DE BORBA', descricao: 'Capacho junta SPA', statusSolemp: 'Empenhada', empenho: '379', statusEmpenho: 'Empenhada', valorEmp: 'R$ 382,80', obs: '', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '16/07/2026', nfeNum: '', entradaNfe: '16/07/2026', statusNfe: 'Enviada', envioNfe: '21/07/2026' },
+          { id: 'a18', par: 'ABR', solemp: '425', empresa: 'DECOINTER', descricao: 'Persianas — reforço', statusSolemp: 'Empenhada', empenho: '447', statusEmpenho: 'Empenhada', valorEmp: 'R$ 87,50', obs: 'Recurso da cafeteira', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '23/07/2026', nfeNum: '', entradaNfe: '05/08/2026', statusNfe: 'A Enviar', envioNfe: '' },
+          { id: 'a19', par: '', solemp: '384', empresa: 'CROMA TECNOLOGIA', descricao: 'TV 50 pol', statusSolemp: 'Empenhada', empenho: '401', statusEmpenho: 'Empenhada', valorEmp: 'R$ 1.829,90', obs: 'Recurso bebedouro', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '08/07/2026', nfeNum: '2847', entradaNfe: '08/07/2026', statusNfe: 'Enviada', envioNfe: '09/07/2026' },
+          { id: 'a20', par: '', solemp: '385', empresa: 'SOUL DISTRIBUIDORA', descricao: 'Microondas', statusSolemp: 'Empenhada', empenho: '400', statusEmpenho: 'Empenhada', valorEmp: 'R$ 699,90', obs: 'Recurso bebedouro', contato: 'Feito', respondido: 'Sim', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a21', par: '', solemp: '460', empresa: 'CROMA TECNOLOGIA', descricao: 'TV 50 pol', statusSolemp: 'Empenhada', empenho: '568', statusEmpenho: 'Empenhada', valorEmp: 'R$ 1.829,90', obs: 'Recurso conjunto de sofá', contato: 'Feito', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a22', par: 'ABR', solemp: '498', empresa: 'LUANA CARNEIRO', descricao: 'Dispensa fita HGT', statusSolemp: 'Empenhada', empenho: '599', statusEmpenho: 'Empenhada', valorEmp: 'R$ 1.580,00', obs: '', contato: 'Feito', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a23', par: 'ABR', solemp: '501', empresa: 'MAP BRASIL', descricao: 'Dispensa bateria CR2032', statusSolemp: 'Empenhada', empenho: '600', statusEmpenho: 'Empenhada', valorEmp: 'R$ 177,00', obs: '', contato: 'Feito', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+          { id: 'a24', par: '', solemp: '520', empresa: 'DECOINTER', descricao: 'Persianas: JRS, sala da chefe de departamento e secretaria', statusSolemp: 'Rascunho', empenho: '', statusEmpenho: 'Rascunho', valorEmp: 'R$ 980,00', obs: '', contato: 'A fazer', respondido: 'Aguardando', chegadaMaterial: '', nfeNum: '', entradaNfe: '', statusNfe: '', envioNfe: '' },
+        ],
+      },
+      { id: 'dispensa', name: 'Dispensa', type: 'records',
+        listConfig: { title: 'descricao', subtitle: 'nup', tag: 'fase' },
+        fields: [
+          { key: 'par', label: 'PAR' }, { key: 'nup', label: 'NUP' }, { key: 'descricao', label: 'Descrição' },
+          { key: 'valor', label: 'Valor da Dispensa' }, { key: 'fase', label: 'Fase' }, { key: 'nupObtencao', label: 'NUP Obtenção' },
+          { key: 'cp', label: 'CP' }, { key: 'dfd', label: 'DFD' }, { key: 'pp', label: 'PP' }, { key: 'tr', label: 'TR' }, { key: 'do', label: 'DO' },
+          { key: 'modeloAgu', label: 'Modelo AGU' }, { key: 'adequacao', label: 'Adequação ao planejamento' }, { key: 'ato', label: 'Ato que autoriza a contratação' },
+        ],
+        notes: '',
+        records: [
+          { id: 'd1', par: 'ABR', nup: '63191.002838/2026-03', descricao: 'HGT, bateria, cateter', valor: 'R$ 2.500,00', fase: 'Concluída', nupObtencao: 'Igual', cp: '980', dfd: 'OK', pp: '73', tr: '85', do: '31', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd2', par: 'MAI', nup: '63191.003534/2026-55', descricao: 'Esfigmo e manguito', valor: 'R$ 708,45', fase: 'Enviada a Obtenção', nupObtencao: '', cp: '1396', dfd: 'OK', pp: '107', tr: '173', do: '70', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd3', par: 'JUN', nup: '63191.004746/2026-50', descricao: 'Insumos saúde — jelco, esparadrapo, luva, rolo ECG', valor: 'R$ 8.766,60', fase: 'Enviada a Obtenção', nupObtencao: '', cp: '1841', dfd: 'OK', pp: '160', tr: '222', do: '111', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd4', par: 'JUL', nup: '63191.005055/2026-73', descricao: '30 — material de saúde: cateteres para infusão, estetoscópios, oxímetros, máscaras, papel de eletrocardiógrafo, fita de autoclave, cateter O2, protetores de colchão, cortina para banheiro, pinha recarregável', valor: 'R$ 6.802,23', fase: 'Enviada a Obtenção', nupObtencao: '', cp: '2093', dfd: 'OK', pp: '210', tr: '227', do: '119', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd5', par: 'JUL', nup: '63191.005056/2026-18', descricao: '39 — material de saúde: recarga e reteste do cilindro de O2', valor: 'R$ 1.835,01', fase: 'Enviada a Obtenção', nupObtencao: '', cp: '2095', dfd: 'OK', pp: '211', tr: '240', do: '120', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd6', par: '', nup: '63191.005294/2026-23', descricao: '52 — material de saúde: aspirador de secreção, monitor multiparamétrico, macas clínicas', valor: 'R$ 8.926,61', fase: 'AGU DO', nupObtencao: '', cp: '2175', dfd: 'OK', pp: '212', tr: '235', do: '133', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd7', par: '', nup: '63191.005414/2026-92', descricao: 'Suporte de soro para parede (14)', valor: 'R$ 2.576,00', fase: 'AGU AUT PAR', nupObtencao: '', cp: '2241', dfd: 'OK', pp: '269', tr: '262', do: '141', modeloAgu: 'OK', adequacao: 'OK', ato: 'OK' },
+          { id: 'd8', par: '', nup: '', descricao: 'Serviço de estofador — Contrata Mais Brasil, aguardando adestramento pela Ten. Lívia', valor: '', fase: 'A fazer', nupObtencao: '', cp: '', dfd: '', pp: '', tr: '', do: '', modeloAgu: '', adequacao: '', ato: '' },
+          { id: 'd9', par: '', nup: '', descricao: 'Material do mestre — manutenção do Departamento de Saúde', valor: '', fase: 'A fazer', nupObtencao: '', cp: '', dfd: '', pp: '', tr: '', do: '', modeloAgu: '', adequacao: '', ato: '' },
+        ],
+      },
+      { id: 'necessidades', name: 'Necessidades', type: 'records',
+        listConfig: { title: 'necessidade', subtitle: 'obs', tag: 'nd' },
+        fields: [
+          { key: 'nd', label: 'ND', type: 'number' }, { key: 'valor', label: 'Valor' }, { key: 'necessidade', label: 'Necessidades para o PAR seguinte' },
+          { key: 'obs', label: 'Observação' },
+        ],
+        notes: 'A planilha do PAR de agosto está pré-confeccionada — a deliberar quando for solicitado pela Execução Financeira.\nSíntese: 1 aspirador, 1 monitor, 2 macas.',
+        records: [
+          { id: 'n1', nd: 52, valor: '', necessidade: 'Aquisição de computadores para implantação do sistema AGHUSe e que suportem sistemas operacionais homologados pela Marinha (10 unidades, valor unitário R$ 5.390,00, valor total R$ 53.900,00)', obs: 'Solemp 224' },
+          { id: 'n2', nd: 52, valor: '', necessidade: 'Geladeira para a nova copa', obs: 'VRF' },
+          { id: 'n3', nd: 52, valor: '', necessidade: 'Macas clínicas para os consultórios (3 x R$ 1.165,40)', obs: 'Dispensa 63191.005294/2026-23' },
+          { id: 'n4', nd: 39, valor: '', necessidade: 'Poltrona de hidratação 8B+3V', obs: 'Adestramento Contrata Mais Brasil — Ten. Lívia, AGU nota no PD (ND 39-52)' },
+          { id: 'n5', nd: 30, valor: '', necessidade: 'Suporte de soro para parede (14 x R$ 184,00)', obs: 'Dispensa 63191.005414/2026-92' },
+          { id: 'n6', nd: 52, valor: '', necessidade: 'Material de saúde — aspirador de secreção (2 x R$ 627,20)', obs: 'Dispensa 63191.005294/2026-23' },
+          { id: 'n7', nd: 52, valor: '', necessidade: 'Material de saúde — monitores multiparamétricos (2 x R$ 5.968,61)', obs: 'Dispensa 63191.005294/2026-23' },
+          { id: 'n8', nd: 39, valor: '', necessidade: 'Persianas', obs: 'Solemp 520' },
+        ],
+      },
+      { id: 'ar', name: 'Ar Condicionado', type: 'records',
+        listConfig: { title: 'local', subtitle: 'btu', tag: 'par' },
+        fields: [
+          { key: 'btu', label: 'BTU', type: 'number' }, { key: 'local', label: 'Local' }, { key: 'solemp', label: 'Solemp' },
+          { key: 'empenho', label: 'Empenho' }, { key: 'valor', label: 'Valor' }, { key: 'par', label: 'PAR' },
+        ],
+        notes: 'A localização pode ser modificada — foi aprovado o quantitativo de ar x BTU. Aquisições pelo DSG.\nPAR junho — deliberado R$ 8.142,86 para o DSG, falta R$ 4.963,86.\nPAR julho — deliberado R$ 4.540,00 para o DSG, OK Solemp 469.\nJulho — Solemp 450 (2x12000 BTU) e 470 (18000 BTU), Empenho 538 e 539, R$ 5.449,00 (saldo julho e junho).\nSolemp 469, 2x12000 BTU, PAR julho — verificada.',
+        records: [
+          { id: 'r1', btu: 12000, local: 'Consultório II', solemp: '469', empenho: '', valor: '', par: 'JUL' },
+          { id: 'r2', btu: 12000, local: 'Consultório III', solemp: '469', empenho: '', valor: '', par: 'JUL' },
+          { id: 'r3', btu: 12000, local: 'Sala da Chefe de Departamento', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r4', btu: 12000, local: 'Vestiário', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r5', btu: 12000, local: 'Sala ECG', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r6', btu: 12000, local: 'Raio X', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r7', btu: 30000, local: 'Secretaria', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r8', btu: 30000, local: 'Recepção da Junta I', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r9', btu: 30000, local: 'Recepção da Junta II', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r10', btu: 30000, local: 'SPA I', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r11', btu: 30000, local: 'SPA II', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r12', btu: 30000, local: 'Corredor de hidratação', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r13', btu: 30000, local: 'Enfermaria Masculina', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r14', btu: 24000, local: 'Recepção SPA', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r15', btu: 24000, local: 'Farmácia', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r16', btu: 24000, local: 'Fisioterapia', solemp: '', empenho: '', valor: '', par: '' },
+          { id: 'r17', btu: 18000, local: 'Laboratório', solemp: '470', empenho: '557', valor: 'R$ 3.179,00', par: 'JUN' },
+        ],
+      },
+      { id: 'metas', name: 'Metas', type: 'simple',
+        listConfig: { title: 'texto', subtitle: null, tag: 'nd' },
+        fields: [{ key: 'nd', label: 'ND', type: 'number' }, { key: 'texto', label: 'Meta' }],
+        records: [{ id: 'm1', nd: '', texto: 'Inclusão de novos itens no SAFIN em 2027' }],
+      },
+    ];
+  }
+
+  // Nome do mês seguinte a `label` no calendário — usado pra virar o mês mesmo
+  // quando `label` é o último mês já conhecido em state.months (ver confirmRollover).
+  nextMonthName(label) {
+    const cal = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const i = cal.indexOf(label);
+    return i === -1 ? label : cal[(i + 1) % 12];
+  }
+
+  atual(it) { return it.inicial - it.saida + it.recebidos; }
+  isAlert(it) { return this.atual(it) < 0 || it.expired; }
+  findCat(list, id) { return list.find(c => c.id === id); }
+  pulseSync() { this.setState({ lastSyncMin: 0 }); }
+
+  // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
+  buildReportPdf(kicker, monthLabel, lines, total) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 48;
+    let y = 64;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.setTextColor(120); doc.text(kicker.toUpperCase(), marginX, y); y += 22;
+    doc.setTextColor(20); doc.setFontSize(20);
+    doc.text('Relatório de consumo', marginX, y); y += 28;
+    doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 18;
+    doc.setFontSize(11);
+    if (lines.length === 0) {
+      doc.setTextColor(140);
+      doc.text('Sem saídas registradas em ' + monthLabel + ' para as categorias selecionadas.', marginX, y);
+      y += 20;
+    } else {
+      lines.forEach(rl => {
+        if (y > 780) { doc.addPage(); y = 64; }
+        doc.setTextColor(30); doc.text(String(rl.nome), marginX, y);
+        doc.setTextColor(170, 10, 70); doc.text('-' + rl.saida, 547, y, { align: 'right' });
+        doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
+        y += 20;
+      });
+    }
+    y += 10; doc.setDrawColor(20); doc.line(marginX, y, 547, y); y += 20;
+    doc.setFontSize(13); doc.setTextColor(20);
+    doc.text('Total consumido', marginX, y);
+    doc.text(String(total), 547, y, { align: 'right' });
+    return doc;
+  }
+
+  // Gera o PDF completo do ano fechado de Aquisições — Como Comprar + todas as páginas
+  // de dados (Aquisições, Dispensa, Necessidades, Ar Condicionado, Metas), pra consulta
+  // total depois que as páginas são reiniciadas pro ano seguinte.
+  buildAcqYearPdf(year, pages) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 48, rightX = 547, pageBottom = 780;
+    let y = 64, firstSection = true;
+
+    const newSection = (title) => {
+      if (!firstSection) doc.addPage();
+      firstSection = false;
+      y = 64;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120);
+      doc.text('SAÚDE AQUISIÇÃO ' + year, marginX, y); y += 20;
+      doc.setFontSize(18); doc.setTextColor(20);
+      doc.text(title, marginX, y); y += 14;
+      doc.setDrawColor(20); doc.line(marginX, y, rightX, y); y += 22;
+      doc.setFontSize(10);
+    };
+    const ensureRoom = (need) => { if (y + need > pageBottom) { doc.addPage(); y = 64; } };
+    const wrapped = (text, width) => doc.splitTextToSize(String(text), width);
+    const writeLines = (lines, indent = 0) => { lines.forEach(l => { ensureRoom(14); doc.text(l, marginX + indent, y); y += 13; }); };
+
+    // Como Comprar — guia fixo (mesmo conteúdo mostrado na página "Como Comprar" do app)
+    newSection('Como Comprar');
+    const defs = this.acqStepDefs();
+    [['Está em ata de registro de preços (Solemp)', defs.sim], ['Não está em ata — dispensa', defs.nao]].forEach(([title, steps]) => {
+      ensureRoom(18); doc.setFont('helvetica', 'bold'); doc.setTextColor(20); doc.text(title, marginX, y); y += 16;
+      doc.setFont('helvetica', 'normal');
+      steps.forEach(st => {
+        doc.setTextColor(30);
+        writeLines(wrapped(st.n + '. ' + st.text, rightX - marginX));
+        doc.setTextColor(120);
+        writeLines(wrapped(st.detail, rightX - marginX - 10), 10);
+        y += 4;
+      });
+      y += 10;
+    });
+
+    // Uma seção por página de dados (pula "Como Comprar", já coberta acima)
+    pages.forEach(page => {
+      if (page.type === 'guide') return;
+      const n = page.records.length;
+      newSection(page.name + ' (' + n + ' registro' + (n === 1 ? '' : 's') + ')');
+      if (n === 0) {
+        doc.setTextColor(140); doc.text('Nenhum registro.', marginX, y); y += 16;
+        return;
+      }
+      page.records.forEach((rec, i) => {
+        ensureRoom(16);
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(20);
+        const heading = rec[page.listConfig.title] || ('Registro ' + (i + 1));
+        writeLines(wrapped(heading, rightX - marginX));
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(60);
+        page.fields.forEach(f => {
+          const v = rec[f.key];
+          if (v === undefined || v === null || v === '') return;
+          writeLines(wrapped(f.label + ': ' + v, rightX - marginX - 10), 10);
+        });
+        y += 6; ensureRoom(6); doc.setDrawColor(230); doc.line(marginX, y, rightX, y); y += 10;
+      });
+    });
+
+    return doc;
+  }
+
+  updateItem(catId, itemId, patch) {
+    this.setState(s => ({
+      categories: s.categories.map(c => c.id !== catId ? c : { ...c, items: c.items.map(it => it.id !== itemId ? it : { ...it, ...patch }) })
+    }));
+    this.pulseSync();
+  }
+
+  acqStepDefs() {
+    return {
+      sim: [
+        { n: 1, key: 'sim-1', text: 'Solemp: anexar documentos', detail: 'Autorização de uso da ata, ata de registro de preços, portaria dos gestores e demais documentos do Safin (exceto SICAF).' },
+        { n: 2, key: 'sim-2', text: 'Empenho', detail: 'Reserva orçamentária formal, enviada por Zimbra pela Execução Financeira.' },
+        { n: 3, key: 'sim-3', text: 'Enviar para a empresa por Zimbra', detail: 'Encaminhamento do empenho/pedido à empresa fornecedora.' },
+        { n: 4, key: 'sim-4', text: 'Receber e encaminhar a nota fiscal', detail: 'Segue para a conclusão comum aos dois fluxos.' },
+      ],
+      nao: [
+        { n: 1, key: 'nao-1', text: 'Dispensa', detail: 'Contratação direta sem licitação, prevista na Lei nº 14.133/2021.' },
+        { n: 2, key: 'nao-2', text: 'Registrar no Compras.gov', detail: 'Portal de compras do governo federal.' },
+        { n: 3, key: 'nao-3', text: 'Pesquisa de preços + Nota Técnica', detail: 'Levantamento de preços de mercado, versão detalhada.' },
+        { n: 4, key: 'nao-4', text: 'Declaração de Reserva Orçamentária', detail: 'Assinada pelo Agente Fiscal antes de seguir à Obtenção.' },
+        { n: 5, key: 'nao-5', text: 'Termo de Referência (TR)', detail: 'Compras.gov → Artefato Digital → Licitação.' },
+        { n: 6, key: 'nao-6', text: 'DFD, ato de autorização e declarações', detail: 'Documentos do site do CIAA → Obtenção.' },
+        { n: 7, key: 'nao-7', text: 'Envio via SIGAD à Obtenção', detail: 'Minuta e orçamentos, com o NUP do SIGAD.' },
+        { n: 8, key: 'nao-8', text: 'Dispensa concluída pela Obtenção', detail: 'Segue para o Empenho na Solemp.' },
+      ],
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const monthLabel = s.months[s.monthIndex];
+    const yearLabel = s.years[s.monthIndex];
+    const monthKey = monthLabel + ' ' + yearLabel;
+    const nextMonthLabel = s.monthIndex < s.months.length - 1 ? s.months[s.monthIndex + 1] : this.nextMonthName(monthLabel);
+    const prevMonthLabel = s.monthIndex > 0 ? s.months[s.monthIndex - 1] : monthLabel;
+    // Meses com o mesmo nome se repetem todo ano (Janeiro de 2027, de 2028...), então o
+    // seletor de mês e o arquivo (history) usam a chave composta "Mês Ano" pra não colidir.
+    const viewMonthLabel = s.months[s.viewMonthIndex];
+    const viewYearLabel = s.years[s.viewMonthIndex];
+    const viewMonthKey = viewMonthLabel + ' ' + viewYearLabel;
+    const isCurrentView = s.viewMonthIndex === s.monthIndex;
+    const viewCategories = isCurrentView ? s.categories : (s.history[viewMonthKey] || s.categories);
+
+    let alertCount = 0, totalItems = 0, totalSaida = 0;
+    s.categories.forEach(c => c.items.forEach(it => { totalItems++; totalSaida += it.saida; if (this.isAlert(it)) alertCount++; }));
+
+    if (!this.findCat(viewCategories, s.activeCategory)) s.activeCategory = viewCategories[0].id;
+    const activeCat = this.findCat(viewCategories, s.activeCategory) || viewCategories[0];
+    const categoryTabs = viewCategories.map(c => ({
+      id: c.id, name: c.name, tagClass: c.id === s.activeCategory ? 'tag-accent' : 'tag-outline',
+      select: () => this.setState({ activeCategory: c.id, search: '' }),
+    }));
+
+    const q = s.search.trim().toLowerCase();
+    const describeItem = (it, catName) => {
+      const at = this.atual(it);
+      let color = 'var(--color-text)';
+      let meta = it.validade ? 'Validade ' + it.validade : 'Sem validade';
+      if (at < 0) { color = 'var(--color-accent-2-700)'; meta = 'Saldo negativo · ' + meta; }
+      else if (it.expired) { color = 'var(--color-accent-2-600)'; meta = 'Vencido · ' + meta; }
+      else if (at === 0) { color = 'var(--color-neutral-500)'; }
+      else if (at < 10) { color = 'var(--color-accent-700)'; meta = 'Estoque baixo · ' + meta; }
+      if (catName) meta = catName + ' · ' + meta;
+      return { id: it.id, nome: it.nome, atual: at, atualColor: color, meta, metaColor: it.expired || at < 0 ? color : 'var(--color-neutral-600)' };
+    };
+    let visibleItems;
+    if (q) {
+      visibleItems = [];
+      viewCategories.forEach(c => c.items.forEach(it => {
+        if (it.nome.toLowerCase().includes(q)) {
+          visibleItems.push({ ...describeItem(it, c.name), open: () => this.setState({ itemDialog: { catId: c.id, itemId: it.id, isNew: false } }) });
+        }
+      }));
+    } else {
+      visibleItems = activeCat.items.map(it => ({ ...describeItem(it), open: () => this.setState({ itemDialog: { catId: activeCat.id, itemId: it.id, isNew: false } }) }));
+    }
+
+    let dlg = null, itemDialogOpen = false;
+    if (s.itemDialog) {
+      itemDialogOpen = true;
+      const cat = this.findCat(viewCategories, s.itemDialog.catId);
+      const it = s.itemDialog.isNew ? s.itemDialog.draft : cat.items.find(x => x.id === s.itemDialog.itemId);
+      const at = it.inicial - it.saida + it.recebidos;
+      dlg = {
+        headerLabel: s.itemDialog.isNew ? 'Novo item — ' + cat.name : it.nome,
+        nome: it.nome, validade: it.validade, inicial: it.inicial, saida: it.saida, recebidos: it.recebidos,
+        atualPreview: at, atualColor: at < 0 ? 'var(--color-accent-2-700)' : 'var(--color-text)',
+        canDuplicate: !s.itemDialog.isNew && isCurrentView, canDelete: !s.itemDialog.isNew && isCurrentView,
+      };
+    }
+    const patchDraft = (field, value) => {
+      const num = ['inicial', 'saida', 'recebidos'].includes(field);
+      const v = num ? (parseFloat(value) || 0) : value;
+      if (s.itemDialog.isNew) this.setState(st => ({ itemDialog: { ...st.itemDialog, draft: { ...st.itemDialog.draft, [field]: v } } }));
+      else this.updateItem(s.itemDialog.catId, s.itemDialog.itemId, { [field]: v });
+    };
+
+    const addPage = s.addPageDialog;
+    const acqDefs = this.acqStepDefs();
+    const branchSteps = s.acqBranch ? acqDefs[s.acqBranch] : [];
+    const acqSteps = branchSteps.map(st => {
+      const done = !!s.acqDone[st.key];
+      return {
+        n: st.n, text: st.text, detail: st.detail, strike: done ? 'line-through' : 'none',
+        dotBg: done ? 'var(--color-accent-600)' : 'transparent', dotBorder: done ? 'var(--color-accent-600)' : 'var(--color-neutral-400)',
+        toggle: () => this.setState(x => ({ acqDone: { ...x.acqDone, [st.key]: !x.acqDone[st.key] } })),
+      };
+    });
+
+    // Cada mês aparece no seletor como "Mês Ano" (chave composta) — assim Janeiro/2027 e
+    // Janeiro/2028 não colidem no relatório mensal, e cada ano civil vira sua própria opção
+    // "Anual {ano}" (sem misturar 2026 com 2027). "Geral" soma tudo, de todos os anos.
+    const monthKeys = s.months.map((m, i) => m + ' ' + s.years[i]);
+    const monthOptions = monthKeys.map(k => ({ label: k }));
+    const distinctYears = [...new Set(s.years)];
+    const annualOptions = distinctYears.map(y => ({ label: 'Anual ' + y }));
+    const reportMonthOptions = [...monthOptions, ...annualOptions, { label: 'Geral' }];
+    const reportMonthLabel = s.reportPeriod;
+    const isGeneralReport = reportMonthLabel === 'Geral';
+    const annualMatch = /^Anual (\d+)$/.exec(reportMonthLabel);
+    const isAnnualReport = !!annualMatch;
+    const annualYear = isAnnualReport ? Number(annualMatch[1]) : null;
+    const getCatsForKey = (key) => key === monthKey ? s.categories : (s.history[key] || s.categories);
+    const reportCatChips = s.categories.map(c => ({
+      id: c.id, name: c.name, tagClass: s.reportCats[c.id] ? 'tag-accent' : 'tag-outline',
+      toggle: () => this.setState(x => ({ reportCats: { ...x.reportCats, [c.id]: !x.reportCats[c.id] } })),
+    }));
+    // "Geral" soma vários anos — os chips deixam escolher quais entram no relatório (o "big
+    // relatório" pedido). Ano não mexido em reportYears conta como selecionado (padrão: todos).
+    const yearSelected = (y) => s.reportYears[y] !== false;
+    const selectedYears = distinctYears.filter(yearSelected);
+    const reportYearChips = distinctYears.map(y => ({
+      year: y, tagClass: yearSelected(y) ? 'tag-accent' : 'tag-outline',
+      toggle: () => this.setState(x => ({ reportYears: { ...x.reportYears, [y]: !yearSelected(y) } })),
+    }));
+    const reportLines = [];
+    let reportTotal = 0;
+    if (isGeneralReport || isAnnualReport) {
+      const sums = {};
+      s.months.forEach((label, idx) => {
+        const y = s.years[idx];
+        if (isAnnualReport && y !== annualYear) return;
+        if (isGeneralReport && !yearSelected(y)) return;
+        getCatsForKey(monthKeys[idx]).forEach(c => {
+          if (!s.reportCats[c.id]) return;
+          c.items.forEach(it => { if (it.saida > 0) sums[it.nome] = (sums[it.nome] || 0) + it.saida; });
+        });
+      });
+      Object.entries(sums).forEach(([nome, saida]) => { reportLines.push({ nome, saida }); reportTotal += saida; });
+    } else {
+      getCatsForKey(reportMonthLabel).forEach(c => {
+        if (!s.reportCats[c.id]) return;
+        c.items.forEach(it => { if (it.saida > 0) { reportLines.push({ nome: it.nome, saida: it.saida }); reportTotal += it.saida; } });
+      });
+    }
+    const reportKicker = isGeneralReport
+      ? ('Geral · ' + (selectedYears.length === 0 ? 'nenhum ano selecionado' : selectedYears.length === distinctYears.length ? 'todos os anos' : selectedYears.join(', ')))
+      : isAnnualReport ? ('Ano completo · ' + annualYear)
+      : reportMonthLabel.replace(/ (\d+)$/, ' · $1');
+
+    // Aquisições
+    const acqPageTabs = s.acqPages.map(p => ({
+      id: p.id, name: p.name, tagClass: p.id === s.activeAcqPage ? 'tag-accent' : 'tag-outline',
+      select: () => this.setState({ activeAcqPage: p.id, acqSearch: '' }),
+    }));
+    const activeAcqPage = this.findCat(s.acqPages, s.activeAcqPage) || s.acqPages[0];
+    const isGuidePage = activeAcqPage.type === 'guide';
+    const isRecordsPage = !isGuidePage;
+    const aq = s.acqSearch.trim().toLowerCase();
+    let acqVisibleRecords = [];
+    if (isRecordsPage) {
+      const lc = activeAcqPage.listConfig;
+      acqVisibleRecords = activeAcqPage.records.filter(r => !aq || (r[lc.title] || '').toLowerCase().includes(aq)).map(r => ({
+        id: r.id, title: r[lc.title] || '(sem título)',
+        subtitle: lc.subtitle ? r[lc.subtitle] : '', hasSubtitle: !!(lc.subtitle && r[lc.subtitle]),
+        tag: lc.tag ? r[lc.tag] : '', hasTag: !!(lc.tag && r[lc.tag]),
+        open: () => this.setState({ acqItemDialog: { pageId: activeAcqPage.id, recordId: r.id, isNew: false } }),
+      }));
+    }
+
+    let acqDlg = null, acqDialogOpen = false;
+    if (s.acqItemDialog) {
+      acqDialogOpen = true;
+      const page = this.findCat(s.acqPages, s.acqItemDialog.pageId);
+      const rec = s.acqItemDialog.isNew ? s.acqItemDialog.draft : page.records.find(r => r.id === s.acqItemDialog.recordId);
+      acqDlg = {
+        headerLabel: s.acqItemDialog.isNew ? 'Novo registro — ' + page.name : (rec[page.listConfig.title] || page.name),
+        canDuplicate: !s.acqItemDialog.isNew, canDelete: !s.acqItemDialog.isNew,
+        fields: page.fields.map(f => ({
+          label: f.label, value: rec[f.key] ?? '', type: f.type || 'text',
+          onChange: (e) => this.patchAcqDraft(f.key, e.target.value),
+        })),
+      };
+    }
+
+    const acqAddPage = s.acqAddPageDialog;
+    const tabOn = 'var(--color-accent-700)', tabOff = 'var(--color-neutral-500)';
+
+    const alertItems = [];
+    s.categories.forEach(c => c.items.forEach(it => {
+      if (this.isAlert(it)) alertItems.push({ ...describeItem(it, c.name), open: () => this.setState({ itemDialog: { catId: c.id, itemId: it.id, isNew: false } }) });
+    }));
+
+    return {
+      isInicio: s.screen === 'inicio', isEstoque: s.screen === 'estoque',
+      isAquisicoes: s.screen === 'aquisicoes', isRelatorios: s.screen === 'relatorios', isConfig: s.screen === 'config',
+      isAlertas: s.screen === 'alertas',
+      alertItems, noAlertItems: alertItems.length === 0,
+      goInicio: () => this.setState({ screen: 'inicio' }),
+      goEstoque: () => this.setState({ screen: 'estoque' }),
+      goAquisicoes: () => this.setState({ screen: 'aquisicoes' }),
+      goRelatorios: () => this.setState({ screen: 'relatorios' }),
+      goConfig: () => this.setState({ screen: 'config' }),
+      goAlertas: () => this.setState({ screen: 'alertas' }),
+      goNovoRegistroAquisicoes: () => {
+        const page = this.findCat(s.acqPages, 'aquisicoes');
+        this.setState({
+          screen: 'aquisicoes', activeAcqPage: 'aquisicoes',
+          acqItemDialog: { pageId: 'aquisicoes', recordId: null, isNew: true, draft: page.fields.reduce((o, f) => (o[f.key] = '', o), {}) },
+        });
+      },
+      tabColor: {
+        inicio: s.screen === 'inicio' ? tabOn : tabOff, estoque: s.screen === 'estoque' ? tabOn : tabOff,
+        aquisicoes: s.screen === 'aquisicoes' ? tabOn : tabOff, relatorios: s.screen === 'relatorios' ? tabOn : tabOff,
+      },
+      showFab: s.screen === 'estoque' && isCurrentView ? true : (s.screen === 'aquisicoes' && isRecordsPage),
+      fabAction: s.screen === 'estoque'
+        ? () => this.setState({ itemDialog: { catId: activeCat.id, itemId: null, isNew: true, draft: { nome: '', validade: '', inicial: 0, saida: 0, recebidos: 0 } } })
+        : () => this.setState({ acqItemDialog: { pageId: activeAcqPage.id, recordId: null, isNew: true, draft: activeAcqPage.fields.reduce((o, f) => (o[f.key] = '', o), {}) } }),
+
+      monthLabel, yearLabel, nextMonthLabel, prevMonthLabel,
+      rolloverBanner: s.rolloverBanner,
+      stats: { alertCount, totalItems, totalSaida },
+      alertCountColor: alertCount > 0 ? 'var(--color-accent-2-700)' : 'var(--color-text)',
+      openRollover: () => this.setState({ rolloverDialogOpen: true }),
+      closeRollover: () => this.setState({ rolloverDialogOpen: false }),
+      rolloverDialogOpen: s.rolloverDialogOpen,
+      confirmRollover: () => {
+        const archived = s.categories;
+        const rolledCategories = s.categories.map(c => ({ ...c, items: c.items.map(it => ({ ...it, inicial: this.atual(it), saida: 0, recebidos: 0 })) }));
+        this.setState(x => {
+          const atLastKnownMonth = x.monthIndex === x.months.length - 1;
+          const nextName = this.nextMonthName(monthLabel);
+          const currentYear = x.years[x.monthIndex];
+          const nextYear = nextName === 'Janeiro' ? currentYear + 1 : currentYear;
+          const months = atLastKnownMonth ? [...x.months, nextName] : x.months;
+          const years = atLastKnownMonth ? [...x.years, nextYear] : x.years;
+          const newIndex = x.monthIndex + 1;
+          return {
+            months, years,
+            history: { ...x.history, [monthKey]: archived },
+            categories: rolledCategories,
+            monthIndex: newIndex, viewMonthIndex: newIndex,
+            reportPeriod: months[newIndex] + ' ' + years[newIndex],
+            rolloverDialogOpen: false, rolloverBanner: true,
+          };
+        });
+        this.pulseSync();
+      },
+
+      search: s.search, onSearchChange: e => this.setState({ search: e.target.value }),
+      categoryTabs, activeCategoryName: activeCat.name,
+      visibleItems, noItems: visibleItems.length === 0,
+      monthOptions, viewMonthLabel, viewYearLabel, viewMonthKey, isArchivedView: !isCurrentView, isCurrentView, closeLabel: isCurrentView ? 'Cancelar' : 'Fechar',
+      onViewMonthChange: e => this.setState({ viewMonthIndex: monthKeys.indexOf(e.target.value), search: '' }),
+
+      openAddPage: () => this.setState({ addPageDialogOpen: true, addPageDialog: { mode: 'blank', name: '' } }),
+      addPageDialogOpen: !!s.addPageDialogOpen,
+      addPageBlankChecked: addPage && addPage.mode === 'blank',
+      addPageDupChecked: addPage && addPage.mode === 'duplicate',
+      setAddPageBlank: () => this.setState(x => ({ addPageDialog: { ...x.addPageDialog, mode: 'blank' } })),
+      setAddPageDup: () => this.setState(x => ({ addPageDialog: { ...x.addPageDialog, mode: 'duplicate' } })),
+      addPageName: addPage ? addPage.name : '',
+      onAddPageName: e => this.setState(x => ({ addPageDialog: { ...x.addPageDialog, name: e.target.value } })),
+      closeAddPage: () => this.setState({ addPageDialogOpen: false, addPageDialog: null }),
+      createPage: () => {
+        const name = (addPage.name || 'Nova categoria').trim();
+        const id = 'cat-' + Date.now();
+        let items = [];
+        if (addPage.mode === 'duplicate') items = activeCat.items.map((it, i) => ({ ...it, id: id + '-' + i, inicial: this.atual(it), saida: 0, recebidos: 0 }));
+        this.setState(x => ({ categories: [...x.categories, { id, name, unit: activeCat.unit, items }], activeCategory: id, addPageDialogOpen: false, addPageDialog: null }));
+        this.pulseSync();
+      },
+
+      itemDialogOpen, dlg,
+      onDlgNome: e => patchDraft('nome', e.target.value), onDlgValidade: e => patchDraft('validade', e.target.value),
+      onDlgInicial: e => patchDraft('inicial', e.target.value), onDlgSaida: e => patchDraft('saida', e.target.value),
+      onDlgRecebidos: e => patchDraft('recebidos', e.target.value),
+      closeItemDialog: () => this.setState({ itemDialog: null }),
+      saveItem: () => {
+        if (s.itemDialog.isNew) {
+          const d = s.itemDialog.draft;
+          this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: [...c.items, { ...d, id: 'new-' + Date.now(), expired: false }] }), itemDialog: null }));
+        } else this.setState({ itemDialog: null });
+        this.pulseSync();
+      },
+      duplicateItem: () => {
+        const it = activeCat.items.find(x => x.id === s.itemDialog.itemId);
+        this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: [...c.items, { ...it, id: 'dup-' + Date.now(), nome: it.nome + ' (cópia)', saida: 0, recebidos: 0, inicial: this.atual(it) }] }), itemDialog: null }));
+        this.pulseSync();
+      },
+      deleteItem: () => {
+        this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: c.items.filter(it => it.id !== s.itemDialog.itemId) }), itemDialog: null }));
+        this.pulseSync();
+      },
+
+      simBtnClass: 'btn ' + (s.acqBranch === 'sim' ? 'btn-primary' : 'btn-secondary'),
+      naoBtnClass: 'btn ' + (s.acqBranch === 'nao' ? 'btn-primary' : 'btn-secondary'),
+      chooseSim: () => this.setState({ acqBranch: 'sim' }), chooseNao: () => this.setState({ acqBranch: 'nao' }),
+      showAcqSteps: !!s.acqBranch, acqSteps,
+      acqConclusion: [
+        { text: 'Empenho enviado à empresa por Zimbra.' },
+        { text: 'Nota fiscal recebida junto com Portaria e autorização de uso.' },
+        { text: 'Certificado de recebimento/prestação assinado e enviado à Execução Financeira.' },
+      ],
+
+      reportMonthLabel, reportMonthOptions, reportKicker, onReportMonthChange: e => this.setState({ reportPeriod: e.target.value }),
+      isGeneralReport, reportYearChips,
+      reportCatChips, reportGenerated: s.reportGenerated, generateReport: () => this.setState({ reportGenerated: true }),
+      reportLines, reportTotal, reportEmpty: reportLines.length === 0,
+      shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
+      downloadReportPdf: () => {
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal);
+        const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
+        doc.save(fname);
+      },
+      shareReportPdf: async () => {
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal);
+        const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
+        const blob = doc.output('blob');
+        const file = new File([blob], fname, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: 'Relatório de consumo', text: reportKicker + ' — Relatório de consumo' });
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return; // usuário cancelou o compartilhamento
+          }
+        }
+        doc.save(fname); // sem suporte a compartilhar arquivo (ex.: desktop) — baixa o PDF pra compartilhar manualmente
+      },
+
+      tasks: s.tasks.map(t => ({
+        id: t.id, texto: t.texto, data: t.data, hasData: !!t.data,
+        strike: t.done ? 'line-through' : 'none', dotBg: t.done ? 'var(--color-accent-600)' : 'transparent', dotBorder: t.done ? 'var(--color-accent-600)' : 'var(--color-neutral-400)',
+        toggle: () => this.setState(x => ({ tasks: x.tasks.map(tk => tk.id === t.id ? { ...tk, done: !tk.done } : tk) })),
+        remove: () => this.setState(x => ({ tasks: x.tasks.filter(tk => tk.id !== t.id) })),
+      })),
+      noTasks: s.tasks.length === 0,
+      newTaskText: s.newTaskText, onNewTaskText: e => this.setState({ newTaskText: e.target.value }),
+      newTaskDate: s.newTaskDate, onNewTaskDate: e => this.setState({ newTaskDate: e.target.value }),
+      addTask: () => {
+        if (!s.newTaskText.trim()) return;
+        const d = s.newTaskDate ? new Date(s.newTaskDate + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+        this.setState(x => ({ tasks: [...x.tasks, { id: 'task-' + Date.now(), texto: x.newTaskText.trim(), data: d, done: false }], newTaskText: '', newTaskDate: '' }));
+      },
+
+      lastSyncMin: s.lastSyncMin, autoSync: s.autoSync, googleSignedIn: s.googleSignedIn, googleNotSignedIn: !s.googleSignedIn,
+      toggleGoogleSignIn: () => this.setState(x => ({ googleSignedIn: !x.googleSignedIn })),
+      toggleAutoSync: () => this.setState(x => ({ autoSync: !x.autoSync })),
+      syncButtonLabel: s.syncing ? 'Sincronizando…' : 'Sincronizar agora',
+      doSync: () => { this.setState({ syncing: true }); setTimeout(() => this.setState({ syncing: false, lastSyncMin: 0 }), 900); },
+      syncDotColor: alertCount > 0 ? 'var(--color-accent-700)' : 'var(--color-accent-600)',
+      syncStripText: 'Sincronizado com Google Planilhas · há ' + s.lastSyncMin + ' min',
+
+      acqPageTabs, isGuidePage, isRecordsPage, acqVisibleRecords, acqNoRecords: isRecordsPage && acqVisibleRecords.length === 0,
+      acqSearch: s.acqSearch, onAcqSearchChange: e => this.setState({ acqSearch: e.target.value }),
+      pageSupportsNotes: isRecordsPage && typeof activeAcqPage.notes === 'string',
+      acqNotes: activeAcqPage.notes || '',
+      onAcqNotesChange: e => {
+        const pid = activeAcqPage.id;
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== pid ? p : { ...p, notes: e.target.value }) }));
+        this.pulseSync();
+      },
+      acqDialogOpen, acqDlg,
+      closeAcqDialog: () => this.setState({ acqItemDialog: null }),
+      saveAcqRecord: () => {
+        const page = activeAcqPage;
+        if (s.acqItemDialog.isNew) {
+          const d = s.acqItemDialog.draft;
+          this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...d, id: 'rec-' + Date.now() }] }), acqItemDialog: null }));
+        } else this.setState({ acqItemDialog: null });
+        this.pulseSync();
+      },
+      duplicateAcqRecord: () => {
+        const page = activeAcqPage;
+        const rec = page.records.find(r => r.id === s.acqItemDialog.recordId);
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: [...p.records, { ...rec, id: 'rec-' + Date.now() }] }), acqItemDialog: null }));
+        this.pulseSync();
+      },
+      deleteAcqRecord: () => {
+        const page = activeAcqPage;
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.filter(r => r.id !== s.acqItemDialog.recordId) }), acqItemDialog: null }));
+        this.pulseSync();
+      },
+
+      openAcqAddPage: () => this.setState({ acqAddPageDialogOpen: true, acqAddPageDialog: { mode: 'blank', name: '' } }),
+      acqAddPageDialogOpen: !!s.acqAddPageDialogOpen,
+      acqAddPageBlankChecked: acqAddPage && acqAddPage.mode === 'blank',
+      acqAddPageDupChecked: acqAddPage && acqAddPage.mode === 'duplicate',
+      setAcqAddPageBlank: () => this.setState(x => ({ acqAddPageDialog: { ...x.acqAddPageDialog, mode: 'blank' } })),
+      setAcqAddPageDup: () => this.setState(x => ({ acqAddPageDialog: { ...x.acqAddPageDialog, mode: 'duplicate' } })),
+      acqAddPageName: acqAddPage ? acqAddPage.name : '',
+      onAcqAddPageName: e => this.setState(x => ({ acqAddPageDialog: { ...x.acqAddPageDialog, name: e.target.value } })),
+      closeAcqAddPage: () => this.setState({ acqAddPageDialogOpen: false, acqAddPageDialog: null }),
+      activeAcqPageName: activeAcqPage.name,
+      createAcqPage: () => {
+        const name = (acqAddPage.name || 'Nova página').trim();
+        const id = 'acqp-' + Date.now();
+        const records = acqAddPage.mode === 'duplicate' ? activeAcqPage.records.map((r, i) => ({ ...r, id: id + '-' + i })) : [];
+        this.setState(x => ({
+          acqPages: [...x.acqPages, { id, name, type: 'records', listConfig: activeAcqPage.listConfig, fields: activeAcqPage.fields, records }],
+          activeAcqPage: id, acqAddPageDialogOpen: false, acqAddPageDialog: null,
+        }));
+        this.pulseSync();
+      },
+
+      acqYear: s.acqYear, acqNextYear: s.acqYear + 1,
+      acqYearCloseDialogOpen: s.acqYearCloseDialogOpen,
+      openAcqYearClose: () => this.setState({ acqYearCloseDialogOpen: true }),
+      closeAcqYearClose: () => this.setState({ acqYearCloseDialogOpen: false }),
+      confirmAcqYearClose: () => {
+        const year = s.acqYear;
+        const doc = this.buildAcqYearPdf(year, s.acqPages);
+        doc.save('saude-aquisicao-' + year + '-completo.pdf');
+        this.setState(x => ({
+          acqPages: x.acqPages.map(p => p.type === 'guide' ? p : { ...p, records: [] }),
+          acqYear: x.acqYear + 1, acqYearCloseDialogOpen: false,
+          activeAcqPage: 'aquisicoes', acqSearch: '',
+        }));
+        this.pulseSync();
+      },
+    };
+  }
+
+  patchAcqDraft(key, value) {
+    const s = this.state;
+    if (s.acqItemDialog.isNew) {
+      this.setState(st => ({ acqItemDialog: { ...st.acqItemDialog, draft: { ...st.acqItemDialog.draft, [key]: value } } }));
+    } else {
+      const pageId = s.acqItemDialog.pageId, recordId = s.acqItemDialog.recordId;
+      this.setState(st => ({
+        acqPages: st.acqPages.map(p => p.id !== pageId ? p : { ...p, records: p.records.map(r => r.id !== recordId ? r : { ...r, [key]: value }) })
+      }));
+      this.pulseSync();
+    }
+  }
+}
+
+</script>
+</body>
+</html>
