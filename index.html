@@ -942,19 +942,22 @@ class Component extends DCLogic {
 
   // --- Aquisições: excluir/criar refletindo direto na planilha do Drive -------
 
-  async getSheetGid(tabName) {
+  // fileId explícito — Aquisições é sempre o mesmo arquivo (ACQ_FILE_ID), mas o
+  // Estoque tem um arquivo por mês, então não dá pra fixar um só.
+  async getSheetGid(fileId, tabName) {
     this._sheetGids = this._sheetGids || {};
-    if (this._sheetGids[tabName] != null) return this._sheetGids[tabName];
+    const cacheKey = fileId + '|' + tabName;
+    if (this._sheetGids[cacheKey] != null) return this._sheetGids[cacheKey];
     const token = await this.ensureAccessToken(false);
     const res = await fetch(
-      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '?fields=' + encodeURIComponent('sheets(properties(sheetId,title))'),
+      'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '?fields=' + encodeURIComponent('sheets(properties(sheetId,title))'),
       { headers: { Authorization: 'Bearer ' + token } }
     );
     if (!res.ok) throw new Error('Não consegui ler a estrutura da planilha: ' + await this.googleApiErrorText(res));
     const data = await res.json();
-    (data.sheets || []).forEach(sh => { this._sheetGids[sh.properties.title] = sh.properties.sheetId; });
-    if (this._sheetGids[tabName] == null) throw new Error('Aba "' + tabName + '" não encontrada na planilha');
-    return this._sheetGids[tabName];
+    (data.sheets || []).forEach(sh => { this._sheetGids[fileId + '|' + sh.properties.title] = sh.properties.sheetId; });
+    if (this._sheetGids[cacheKey] == null) throw new Error('Aba "' + tabName + '" não encontrada na planilha');
+    return this._sheetGids[cacheKey];
   }
 
   // Apaga a linha (row 1-indexado, igual ao que a UI do Sheets mostra) da aba
@@ -966,7 +969,7 @@ class Component extends DCLogic {
     const tab = ACQ_TAB_NAMES[pageId];
     if (!tab) return;
     const token = await this.ensureAccessToken(false);
-    const gid = await this.getSheetGid(tab);
+    const gid = await this.getSheetGid(ACQ_FILE_ID, tab);
     const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + ':batchUpdate', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
@@ -983,25 +986,30 @@ class Component extends DCLogic {
 
   // Acrescenta uma linha nova ao final da aba, na ordem de colunas de ACQ_FIELD_KEYS.
   // Retorna a linha (1-indexada) onde a planilha realmente escreveu.
+  // Grava na linha logo depois do último registro conhecido, calculada a partir
+  // do state (não do endpoint :append do Sheets — ele detecta o fim da "tabela"
+  // pela área usada da planilha, que pode ter formatação/resquícios bem abaixo
+  // dos dados reais, e acabava gravando centenas de linhas depois do esperado).
   async appendAcqRecordRemote(pageId, record) {
     const tab = ACQ_TAB_NAMES[pageId];
     const keys = ACQ_FIELD_KEYS[pageId];
     if (!tab || !keys) return null;
+    const page = this.state.acqPages.find(p => p.id === pageId);
+    const rows = (page ? page.records : []).map(r => r._row).filter(r => r != null);
+    const targetRow = rows.length ? Math.max(...rows) + 1 : 2;
     const token = await this.ensureAccessToken(false);
     const values = [keys.map(k => record[k] ?? '')];
-    const range = "'" + tab + "'!A1";
+    const range = "'" + tab + "'!A" + targetRow;
     const res = await fetch(
-      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
       {
-        method: 'POST',
+        method: 'PUT',
         headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values }),
+        body: JSON.stringify({ range, values }),
       }
     );
     if (!res.ok) throw new Error('Não consegui gravar na planilha: ' + await this.googleApiErrorText(res));
-    const data = await res.json();
-    const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
-    return match ? Number(match[1]) : null;
+    return targetRow;
   }
 
   // Relê as 5 abas de dados de Aquisições direto da planilha e substitui os
@@ -1207,6 +1215,10 @@ class Component extends DCLogic {
 
   // Acrescenta um item novo ao final da aba de categoria no Estoque do mês
   // corrente. Retorna a linha (1-indexada) onde a planilha escreveu.
+  // Insere o item na posição alfabética certa (não no fim da planilha): acha o
+  // primeiro item já ordenado cujo nome vem depois do novo, insere uma linha ali
+  // (empurrando o resto pra baixo) e escreve os valores nela. Sem item "depois",
+  // vai mesmo pro final da lista.
   async appendEstoqueItemRemote(catId, item) {
     const tab = ESTOQUE_CAT_TO_TAB[catId];
     if (!tab) return null;
@@ -1214,18 +1226,50 @@ class Component extends DCLogic {
     const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
     const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
     if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const cat = st.categories.find(c => c.id === catId);
+    const items = (cat ? cat.items : []).filter(it => it._row != null);
+    const sorted = items.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const after = sorted.find(it => item.nome.localeCompare(it.nome, 'pt-BR') < 0);
+    const lastRow = items.length ? Math.max(...items.map(it => it._row)) : 2;
+    const targetRow = after ? after._row : lastRow + 1;
     const token = await this.ensureAccessToken(false);
+    if (after) {
+      const gid = await this.getSheetGid(fileId, tab);
+      const insRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + fileId + ':batchUpdate', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: [{ insertDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: targetRow - 1, endIndex: targetRow }, inheritFromBefore: false } }],
+        }),
+      });
+      if (!insRes.ok) throw new Error(await this.googleApiErrorText(insRes));
+    }
     // A=N° (deixado em branco), B=Material, C=Validade, D=(vazio), E=Inicial, F=Saída, G=Recebidos
     const values = [['', item.nome || '', item.validade || '', '', item.inicial || 0, item.saida || 0, item.recebidos || 0]];
-    const range = "'" + tab + "'!A1";
+    const range = "'" + tab + "'!A" + targetRow;
     const res = await fetch(
-      'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-      { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) }
+      'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values }) }
     );
     if (!res.ok) throw new Error(await this.googleApiErrorText(res));
-    const data = await res.json();
-    const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
-    return match ? Number(match[1]) : null;
+    return targetRow;
+  }
+
+  async deleteEstoqueItemRemote(catId, row) {
+    const tab = ESTOQUE_CAT_TO_TAB[catId];
+    if (!tab) return;
+    const st = this.state;
+    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
+    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
+    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const token = await this.ensureAccessToken(false);
+    const gid = await this.getSheetGid(fileId, tab);
+    const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + fileId + ':batchUpdate', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: row - 1, endIndex: row } } }] }),
+    });
+    if (!res.ok) throw new Error('Não consegui excluir no Estoque da planilha: ' + await this.googleApiErrorText(res));
   }
 
   async updateEstoqueFieldRemote(tab, row, col, value) {
@@ -1584,7 +1628,13 @@ class Component extends DCLogic {
           if (s.googleSignedIn) {
             this.appendEstoqueItemRemote(activeCat.id, d).then(row => {
               this.setState(x => ({
-                categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: c.items.map(it => it.id === newId ? { ...it, _row: row } : it) }),
+                categories: x.categories.map(c => c.id !== activeCat.id ? c : {
+                  ...c, items: c.items.map(it => {
+                    if (it.id === newId) return { ...it, _row: row };
+                    if (it._row != null && it._row >= row) return { ...it, _row: it._row + 1 };
+                    return it;
+                  }),
+                }),
                 driveSyncError: null,
               }));
               alert('Gravado na planilha de Estoque, linha ' + row + '.');
@@ -1601,7 +1651,22 @@ class Component extends DCLogic {
         this.pulseSync();
       },
       deleteItem: () => {
-        this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: c.items.filter(it => it.id !== s.itemDialog.itemId) }), itemDialog: null }));
+        const it = activeCat.items.find(x => x.id === s.itemDialog.itemId);
+        this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: c.items.filter(x2 => x2.id !== s.itemDialog.itemId) }), itemDialog: null }));
+        if (s.googleSignedIn && it && it._row != null) {
+          this.deleteEstoqueItemRemote(activeCat.id, it._row).then(() => {
+            this.setState(x => ({
+              categories: x.categories.map(c => c.id !== activeCat.id ? c : {
+                ...c, items: c.items.map(x2 => (x2._row != null && x2._row > it._row) ? { ...x2, _row: x2._row - 1 } : x2),
+              }),
+              driveSyncError: null,
+            }));
+          }).catch(e => this.reportSyncError('Excluído no app, mas não deu pra excluir no Estoque da planilha: ' + ((e && e.message) || e)));
+        } else if (!s.googleSignedIn) {
+          this.reportSyncError('Não conectado ao Google — a exclusão ficou só neste aparelho e volta se der F5. Entra com a conta em Configurações pra excluir na planilha de verdade.');
+        } else {
+          this.reportSyncError('Esse item ainda não tinha a linha da planilha identificada — a exclusão ficou só neste aparelho. Toca em "Sincronizar agora" nas Configurações e tenta excluir de novo.');
+        }
         this.pulseSync();
       },
 
