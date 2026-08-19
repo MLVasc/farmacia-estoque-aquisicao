@@ -77,7 +77,7 @@
           </div><div style="margin-bottom:8px">
             <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Ações rápidas</div>
             <div style="display:flex;gap:8px">
-              <button type="button" class="btn btn-secondary" onClick="{{ goEstoque }}">Entrada Estoque</button>
+              <button type="button" class="btn btn-secondary" onClick="{{ goEstoqueEntrada }}">Entrada Estoque</button>
               <button type="button" class="btn btn-secondary" onClick="{{ goEstoque }}">Saída Estoque</button>
               <button type="button" class="btn btn-secondary" onClick="{{ goNovoRegistroAquisicoes }}" style="width: 197px; height: 54px">Novo Registro&nbsp;<br>Aquisições</button>
             </div>
@@ -403,6 +403,16 @@
               <button type="button" class="btn btn-ghost btn-icon" aria-label="Fechar" onClick="{{ closeItemDialog }}" style="flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"></path></svg></button>
             </div>
             <div class="dialog-body" style="display:grid;gap:10px;overflow-y:auto;flex:1;min-height:0">
+              <sc-if value="{{ dlg.isNew }}" hint-placeholder-val="{{ false }}">
+                <div class="field">
+                  <label>Categoria</label>
+                  <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px">
+                    <sc-for list="{{ dlgCategoryTabs }}" as="dc" hint-placeholder-count="4">
+                      <span class="tag {{ dc.tagClass }}" onClick="{{ dc.select }}" style="cursor:pointer;white-space:nowrap;flex-shrink:0">{{ dc.name }}</span>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
               <div class="field"><label>Nome</label><input class="input" value="{{ dlg.nome }}" onChange="{{ onDlgNome }}" readOnly="{{ isArchivedView }}"></div>
               <div class="field"><label>Validade</label><input class="input" placeholder="mm/aa" value="{{ dlg.validade }}" onChange="{{ onDlgValidade }}" readOnly="{{ isArchivedView }}"></div>
               <div class="field"><label>Estoque inicial</label><input class="input" type="number" value="{{ dlg.inicial }}" onChange="{{ onDlgInicial }}" readOnly="{{ isArchivedView }}"></div>
@@ -1448,8 +1458,15 @@ class Component extends DCLogic {
         nome: it.nome, validade: it.validade, inicial: it.inicial, saida: it.saida, recebidos: it.recebidos,
         atualPreview: at, atualColor: at < 0 ? 'var(--color-accent-2-700)' : 'var(--color-text)',
         canDuplicate: !s.itemDialog.isNew && isCurrentView, canDelete: !s.itemDialog.isNew && isCurrentView,
+        isNew: !!s.itemDialog.isNew,
       };
     }
+    // Categoria de destino ao criar um item novo — visível no diálogo só nesse
+    // caso, já que abrir pela tela Início não tem uma "categoria ativa" implícita.
+    const dlgCategoryTabs = s.categories.map(c => ({
+      id: c.id, name: c.name, tagClass: s.itemDialog && c.id === s.itemDialog.catId ? 'tag-accent' : 'tag-outline',
+      select: () => this.setState(x => ({ activeCategory: c.id, itemDialog: { ...x.itemDialog, catId: c.id } })),
+    }));
     const patchDraft = (field, value) => {
       const num = ['inicial', 'saida', 'recebidos'].includes(field);
       const v = num ? (parseFloat(value) || 0) : value;
@@ -1602,6 +1619,15 @@ class Component extends DCLogic {
       alertItems, noAlertItems: alertItems.length === 0, alertCategoryTabs,
       goInicio: () => this.setState({ screen: 'inicio' }),
       goEstoque: () => this.setState({ screen: 'estoque' }),
+      // "Entrada Estoque" na Início já abre direto o diálogo de item novo, com o
+      // seletor de categoria (não tem uma categoria ativa "óbvia" vindo daí).
+      goEstoqueEntrada: () => {
+        const cat = this.findCat(s.categories, s.activeCategory) || s.categories[0];
+        this.setState({
+          screen: 'estoque', activeCategory: cat.id,
+          itemDialog: { catId: cat.id, itemId: null, isNew: true, draft: { nome: '', validade: '', inicial: 0, saida: 0, recebidos: 0 } },
+        });
+      },
       goAquisicoes: () => this.setState({ screen: 'aquisicoes' }),
       goRelatorios: () => this.setState({ screen: 'relatorios' }),
       goConfig: () => this.setState({ screen: 'config' }),
@@ -1697,7 +1723,7 @@ class Component extends DCLogic {
         this.pulseSync();
       },
 
-      itemDialogOpen, dlg,
+      itemDialogOpen, dlg, dlgCategoryTabs,
       onDlgNome: e => patchDraft('nome', e.target.value), onDlgValidade: e => patchDraft('validade', e.target.value),
       onDlgInicial: e => patchDraft('inicial', e.target.value), onDlgSaida: e => patchDraft('saida', e.target.value),
       onDlgRecebidos: e => patchDraft('recebidos', e.target.value),
