@@ -857,12 +857,15 @@ class Component extends DCLogic {
         if (!pending) return;
         if (resp.error) { pending.reject(new Error(resp.error)); return; }
         const expiry = Date.now() + resp.expires_in * 1000;
+        const granted = (resp.scope || '').split(' ');
+        const missing = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets'].filter(sc => !granted.includes(sc));
         this.setState({
           googleSignedIn: true, googleAccessToken: resp.access_token,
-          googleTokenExpiry: expiry, driveSyncError: null,
+          googleTokenExpiry: expiry,
+          driveSyncError: missing.length ? ('O Google só concedeu: ' + (resp.scope || '(nenhum escopo)') + ' — faltou autorizar acesso a Drive/Planilhas. Tenta sair e entrar de novo, marcando as duas caixas de permissão na tela do Google.') : null,
         });
         this.saveTokenLocal(resp.access_token, expiry);
-        this.syncAllFromSheets().catch(e => this.setState({ driveSyncError: (e && e.message) || String(e) }));
+        if (!missing.length) this.syncAllFromSheets().catch(e => this.setState({ driveSyncError: (e && e.message) || String(e) }));
         pending.resolve(resp.access_token);
       },
     });
