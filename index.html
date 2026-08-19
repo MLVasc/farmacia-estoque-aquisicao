@@ -590,6 +590,10 @@ const ACQ_FIELD_KEYS = {
   ar: ['btu', 'local', 'solemp', 'empenho', 'valor', 'par'],
   metas: ['texto', 'nd'],
 };
+// Aba nova (criada pelo app se ainda não existir) só pra guardar Tarefas e
+// Anotações da Início e as Notas de rodapé de cada página de Aquisições — nenhum
+// dos dois tem uma coluna correspondente nas abas originais da planilha.
+const APP_DATA_TAB = 'App Dados';
 
 class Component extends DCLogic {
   state = {
@@ -1178,7 +1182,141 @@ class Component extends DCLogic {
     const errors = [];
     await this.loadAcqPagesFromSheet().catch(e => errors.push('Aquisições — ' + ((e && e.message) || e)));
     await this.loadEstoqueFromSheet().catch(e => errors.push('Estoque — ' + ((e && e.message) || e)));
+    await this.loadTasksAndNotesFromSheet().catch(e => errors.push('Tarefas/Notas — ' + ((e && e.message) || e)));
     if (errors.length) throw new Error(errors.join(' | '));
+  }
+
+  // --- Tarefas e Notas de rodapé (aba "App Dados") ----------------------------
+
+  async ensureAppDataTab() {
+    try {
+      return await this.getSheetGid(ACQ_FILE_ID, APP_DATA_TAB);
+    } catch (e) {
+      const token = await this.ensureAccessToken(false);
+      const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + ':batchUpdate', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: APP_DATA_TAB } } }] }),
+      });
+      if (!res.ok) throw new Error('Não consegui criar a aba "' + APP_DATA_TAB + '": ' + await this.googleApiErrorText(res));
+      const data = await res.json();
+      const gid = data.replies[0].addSheet.properties.sheetId;
+      this._sheetGids = this._sheetGids || {};
+      this._sheetGids[ACQ_FILE_ID + '|' + APP_DATA_TAB] = gid;
+      const headerRange = "'" + APP_DATA_TAB + "'!A1";
+      await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(headerRange) + '?valueInputOption=USER_ENTERED',
+        {
+          method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ range: headerRange, values: [['tipo', 'chave', 'texto', 'data', 'feito']] }),
+        }
+      );
+      return gid;
+    }
+  }
+
+  // Próxima linha livre na aba "App Dados" — calculada a partir do que o app já
+  // conhece (tarefas + notas com linha), igual ao resto da sincronização.
+  nextAppDataRow() {
+    const st = this.state;
+    const rows = [
+      ...st.tasks.map(t => t._row),
+      ...st.acqPages.map(p => p._notesRow),
+    ].filter(r => r != null);
+    return rows.length ? Math.max(...rows) + 1 : 2;
+  }
+
+  async loadTasksAndNotesFromSheet() {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!A2:E2000";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error('Não consegui reler tarefas/notas: ' + await this.googleApiErrorText(res));
+    const rows = ((await res.json()).values || []);
+    const tasks = [];
+    const notesByPage = {};
+    rows.forEach((r, ri) => {
+      const tipo = r[0];
+      if (!tipo) return;
+      const row = ri + 2;
+      if (tipo === 'task') tasks.push({ id: 'task-' + row, texto: r[2] || '', data: r[3] || '', done: r[4] === 'TRUE', _row: row });
+      else if (tipo === 'nota') notesByPage[r[1]] = { texto: r[2] || '', _row: row };
+    });
+    this.setState(x => ({
+      tasks,
+      acqPages: x.acqPages.map(p => p.type === 'guide' ? p : { ...p, notes: notesByPage[p.id] ? notesByPage[p.id].texto : (p.notes || ''), _notesRow: notesByPage[p.id] ? notesByPage[p.id]._row : null }),
+    }));
+  }
+
+  async appendTaskRemote(task) {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const row = this.nextAppDataRow();
+    const range = "'" + APP_DATA_TAB + "'!A" + row;
+    const values = [['task', task.id, task.texto, task.data, task.done ? 'TRUE' : 'FALSE']];
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values }) }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    return row;
+  }
+
+  async updateTaskDoneRemote(row, done) {
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!E" + row;
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values: [[done ? 'TRUE' : 'FALSE']] }) }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+  }
+
+  async deleteTaskRemote(row) {
+    const gid = await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + ':batchUpdate', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: row - 1, endIndex: row } } }] }),
+    });
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+  }
+
+  // Atualiza a nota se já tem linha, ou cria uma linha nova pra essa página —
+  // retorna a linha (nova ou existente) pra guardar em acqPages[].
+  async updateNotesRemote(pageId, existingRow, texto) {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    if (existingRow) {
+      const range = "'" + APP_DATA_TAB + "'!C" + existingRow;
+      const res = await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+        { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values: [[texto]] }) }
+      );
+      if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+      return existingRow;
+    }
+    const row = this.nextAppDataRow();
+    const range = "'" + APP_DATA_TAB + "'!A" + row;
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values: [['nota', pageId, texto, '', '']] }) }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    return row;
+  }
+
+  scheduleNotesSync(pageId, existingRow, value) {
+    clearTimeout(this._notesTimer);
+    this._notesTimer = setTimeout(() => {
+      this.updateNotesRemote(pageId, existingRow, value).then(row => {
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id === pageId ? { ...p, _notesRow: row } : p), driveSyncError: null }));
+      }).catch(e => this.reportSyncError('Não deu pra salvar as notas na planilha: ' + ((e && e.message) || e)));
+    }, 700);
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
@@ -1840,8 +1978,25 @@ class Component extends DCLogic {
       tasks: s.tasks.map(t => ({
         id: t.id, texto: t.texto, data: t.data, hasData: !!t.data,
         strike: t.done ? 'line-through' : 'none', dotBg: t.done ? 'var(--color-accent-600)' : 'transparent', dotBorder: t.done ? 'var(--color-accent-600)' : 'var(--color-neutral-400)',
-        toggle: () => this.setState(x => ({ tasks: x.tasks.map(tk => tk.id === t.id ? { ...tk, done: !tk.done } : tk) })),
-        remove: () => this.setState(x => ({ tasks: x.tasks.filter(tk => tk.id !== t.id) })),
+        toggle: () => {
+          const newDone = !t.done;
+          this.setState(x => ({ tasks: x.tasks.map(tk => tk.id === t.id ? { ...tk, done: newDone } : tk) }));
+          if (s.googleSignedIn && t._row != null) {
+            this.updateTaskDoneRemote(t._row, newDone).catch(e => this.reportSyncError('Não deu pra atualizar a tarefa na planilha: ' + ((e && e.message) || e)));
+          } else if (!s.googleSignedIn) {
+            this.reportSyncError('Não conectado ao Google — essa tarefa ficou só neste aparelho.');
+          }
+        },
+        remove: () => {
+          this.setState(x => ({ tasks: x.tasks.filter(tk => tk.id !== t.id) }));
+          if (s.googleSignedIn && t._row != null) {
+            this.deleteTaskRemote(t._row).then(() => {
+              this.setState(x => ({ tasks: x.tasks.map(tk => (tk._row != null && tk._row > t._row) ? { ...tk, _row: tk._row - 1 } : tk) }));
+            }).catch(e => this.reportSyncError('Não deu pra excluir a tarefa na planilha: ' + ((e && e.message) || e)));
+          } else if (!s.googleSignedIn) {
+            this.reportSyncError('Não conectado ao Google — a exclusão ficou só neste aparelho.');
+          }
+        },
       })),
       noTasks: s.tasks.length === 0,
       newTaskText: s.newTaskText, onNewTaskText: e => this.setState({ newTaskText: e.target.value }),
@@ -1849,7 +2004,15 @@ class Component extends DCLogic {
       addTask: () => {
         if (!s.newTaskText.trim()) return;
         const d = s.newTaskDate ? new Date(s.newTaskDate + 'T00:00:00').toLocaleDateString('pt-BR') : '';
-        this.setState(x => ({ tasks: [...x.tasks, { id: 'task-' + Date.now(), texto: x.newTaskText.trim(), data: d, done: false }], newTaskText: '', newTaskDate: '' }));
+        const newTask = { id: 'task-' + Date.now(), texto: s.newTaskText.trim(), data: d, done: false };
+        this.setState(x => ({ tasks: [...x.tasks, newTask], newTaskText: '', newTaskDate: '' }));
+        if (s.googleSignedIn) {
+          this.appendTaskRemote(newTask).then(row => {
+            this.setState(x => ({ tasks: x.tasks.map(tk => tk.id === newTask.id ? { ...tk, _row: row } : tk), driveSyncError: null }));
+          }).catch(e => this.reportSyncError('Tarefa salva no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e)));
+        } else {
+          this.reportSyncError('Não conectado ao Google — essa tarefa ficou só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.');
+        }
       },
 
       lastSyncMin: s.lastSyncMin, autoSync: s.autoSync, googleSignedIn: s.googleSignedIn, googleNotSignedIn: !s.googleSignedIn,
@@ -1881,7 +2044,14 @@ class Component extends DCLogic {
       acqNotes: activeAcqPage.notes || '',
       onAcqNotesChange: e => {
         const pid = activeAcqPage.id;
-        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== pid ? p : { ...p, notes: e.target.value }) }));
+        const value = e.target.value;
+        const existingRow = activeAcqPage._notesRow;
+        this.setState(x => ({ acqPages: x.acqPages.map(p => p.id !== pid ? p : { ...p, notes: value }) }));
+        if (s.googleSignedIn) {
+          this.scheduleNotesSync(pid, existingRow, value);
+        } else {
+          this.reportSyncError('Não conectado ao Google — essas notas ficaram só neste aparelho.');
+        }
         this.pulseSync();
       },
       acqDialogOpen, acqDlg,
