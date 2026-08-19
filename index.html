@@ -16,6 +16,28 @@
 <script src="./support.js"></script>
 </head>
 <body>
+<div id="splash" style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f3f2f2;gap:18px;transition:opacity .35s ease">
+  <svg width="96" height="96" viewBox="0 0 192 192" aria-hidden="true">
+    <rect width="192" height="192" rx="40" fill="#006786"/>
+    <rect x="82" y="46" width="28" height="100" rx="8" fill="#f3f2f2"/>
+    <rect x="46" y="82" width="100" height="28" rx="8" fill="#f3f2f2"/>
+  </svg>
+  <div style="font:13px system-ui,sans-serif;color:#4b4846;text-align:center;padding:0 24px">Desenvolvido pela SG Michelle Vasconcelos</div>
+</div>
+<script>
+  // Some depois que o app inicializa (ou depois de um tempo limite, se algo
+  // travar) — evita que a splash fique presa na tela pra sempre.
+  (function () {
+    function hideSplash() {
+      var el = document.getElementById('splash');
+      if (!el) return;
+      el.style.opacity = '0';
+      setTimeout(function () { el.remove(); }, 350);
+    }
+    window.__hideSplash = hideSplash;
+    setTimeout(hideSplash, 4000);
+  })();
+</script>
 <x-dc>
 <helmet>
   <link rel="stylesheet" href="_ds/broadsheet-d6eb062f-ed71-413b-95f3-2f2a550f4c08/styles.css">
@@ -614,6 +636,7 @@ class Component extends DCLogic {
   };
 
   componentDidMount() {
+    if (window.__hideSplash) window.__hideSplash();
     // O "há X min" nunca teve um relógio de verdade contando — ficava travado no
     // valor inicial. pulseSync() zera a cada ação sincronizada; isso soma 1 por
     // minuto enquanto nada mais mexe.
