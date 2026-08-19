@@ -1205,6 +1205,29 @@ class Component extends DCLogic {
     this.pulseSync();
   }
 
+  // Acrescenta um item novo ao final da aba de categoria no Estoque do mês
+  // corrente. Retorna a linha (1-indexada) onde a planilha escreveu.
+  async appendEstoqueItemRemote(catId, item) {
+    const tab = ESTOQUE_CAT_TO_TAB[catId];
+    if (!tab) return null;
+    const st = this.state;
+    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
+    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
+    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const token = await this.ensureAccessToken(false);
+    // A=N° (deixado em branco), B=Material, C=Validade, D=(vazio), E=Inicial, F=Saída, G=Recebidos
+    const values = [['', item.nome || '', item.validade || '', '', item.inicial || 0, item.saida || 0, item.recebidos || 0]];
+    const range = "'" + tab + "'!A1";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+      { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    const data = await res.json();
+    const match = /![A-Z]+(\d+):/.exec((data.updates || {}).updatedRange || '');
+    return match ? Number(match[1]) : null;
+  }
+
   async updateEstoqueFieldRemote(tab, row, col, value) {
     const st = this.state;
     const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
@@ -1304,6 +1327,9 @@ class Component extends DCLogic {
       if (catName) meta = catName + ' · ' + meta;
       return { id: it.id, nome: it.nome, atual: at, atualColor: color, meta, metaColor: it.expired || at < 0 ? color : 'var(--color-neutral-600)' };
     };
+    // Ordem alfabética do nome do material/medicação, sempre — tanto na categoria
+    // ativa quanto na busca (que cruza todas as categorias).
+    const byNome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR');
     let visibleItems;
     if (q) {
       visibleItems = [];
@@ -1312,8 +1338,9 @@ class Component extends DCLogic {
           visibleItems.push({ ...describeItem(it, c.name), open: () => this.setState({ itemDialog: { catId: c.id, itemId: it.id, isNew: false } }) });
         }
       }));
+      visibleItems.sort(byNome);
     } else {
-      visibleItems = activeCat.items.map(it => ({ ...describeItem(it), open: () => this.setState({ itemDialog: { catId: activeCat.id, itemId: it.id, isNew: false } }) }));
+      visibleItems = activeCat.items.slice().sort(byNome).map(it => ({ ...describeItem(it), open: () => this.setState({ itemDialog: { catId: activeCat.id, itemId: it.id, isNew: false } }) }));
     }
 
     let dlg = null, itemDialogOpen = false;
@@ -1552,7 +1579,19 @@ class Component extends DCLogic {
       saveItem: () => {
         if (s.itemDialog.isNew) {
           const d = s.itemDialog.draft;
-          this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: [...c.items, { ...d, id: 'new-' + Date.now(), expired: false }] }), itemDialog: null }));
+          const newId = 'new-' + Date.now();
+          this.setState(x => ({ categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: [...c.items, { ...d, id: newId, expired: false }] }), itemDialog: null }));
+          if (s.googleSignedIn) {
+            this.appendEstoqueItemRemote(activeCat.id, d).then(row => {
+              this.setState(x => ({
+                categories: x.categories.map(c => c.id !== activeCat.id ? c : { ...c, items: c.items.map(it => it.id === newId ? { ...it, _row: row } : it) }),
+                driveSyncError: null,
+              }));
+              alert('Gravado na planilha de Estoque, linha ' + row + '.');
+            }).catch(e => this.reportSyncError('Salvo no app, mas não deu pra gravar no Estoque da planilha: ' + ((e && e.message) || e)));
+          } else {
+            this.reportSyncError('Não conectado ao Google — esse item ficou salvo só neste aparelho. Entra com a conta em Configurações pra gravar na planilha.');
+          }
         } else this.setState({ itemDialog: null });
         this.pulseSync();
       },
@@ -1664,6 +1703,7 @@ class Component extends DCLogic {
                 acqPages: x.acqPages.map(p => p.id !== page.id ? p : { ...p, records: p.records.map(r => r.id === newId ? { ...r, _row: row } : r) }),
                 driveSyncError: null,
               }));
+              alert('Gravado na planilha de Aquisições, linha ' + row + '.');
             } catch (e) {
               this.reportSyncError('Salvo no app, mas não deu pra gravar na planilha: ' + ((e && e.message) || e));
             }
