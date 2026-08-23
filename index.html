@@ -1226,11 +1226,16 @@ class Component extends DCLogic {
       if (!fileId) continue;
       byMonth[key] = await this.fetchEstoqueCategoriesFromFile(fileId);
     }
+    // BUG corrigido: a lista antiga começava em Março (índice 0), então "Junho"
+    // virava índice 3 e a conta saía 2 meses adiantada (achava que fim de Junho
+    // era fim de Abril) — por isso itens vencendo em Junho (ex.: Dipirona Gota)
+    // nunca eram detectados como já vencidos naquele mês. A lista completa,
+    // Janeiro-based, é a mesma usada em nextMonthName().
+    const CAL_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
     const endOfMonth = (key) => {
-      const idx = monthOrder.indexOf(key);
-      const cal = ['Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto'];
-      const mi = cal.indexOf(key.split(' ')[0]); // 0-indexado, Março=0
-      return new Date(2026, mi + 1, 0, 23, 59, 59); // último dia daquele mês
+      const [name, yearStr] = key.split(' ');
+      const mi = CAL_PT.indexOf(name); // 0-indexado, Janeiro=0
+      return new Date(Number(yearStr), mi + 1, 0, 23, 59, 59); // último dia daquele mês
     };
     const findItem = (cat, nome, validade) => {
       if (!cat) return null;
@@ -1249,6 +1254,7 @@ class Component extends DCLogic {
       const nextCats = nextKey ? byMonth[nextKey] : null;
       const eom = endOfMonth(key);
       cats.forEach(cat => {
+        if (cat.id === 'mat') return; // Material Cirúrgico não entra em descarte
         const nextCat = nextCats ? nextCats.find(c => c.id === cat.id) : null;
         cat.items.forEach(it => {
           const d = this.parseValidadeDate(it.validade);
