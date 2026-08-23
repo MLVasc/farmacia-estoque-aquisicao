@@ -1260,9 +1260,14 @@ class Component extends DCLogic {
           const d = this.parseValidadeDate(it.validade);
           const jaVencido = d && d <= eom;
           if (!jaVencido) return;
+          // Sem "return" aqui de propósito: um item pode ter uma saída parcial já
+          // vencido (regra 1, abaixo) E o restante ainda sumir/zerar no mês
+          // seguinte sem consumo (regra 2, adiante) — são duas perdas diferentes,
+          // não uma só. Ignorar isso foi o que deixou passar batido os ~800
+          // restantes de Dipirona Amp de julho/2026 (só os 100 da saída tinham
+          // sido contados).
           if (it.saida > 0) {
             ledger[key].push({ catId: cat.id, catName: cat.name, nome: it.nome, validade: it.validade, qtd: it.saida, motivo: 'saída registrada após vencido' });
-            return;
           }
           if (!nextKey) return; // mês atual (Agosto) — sem "mês seguinte" pra confirmar reset/exclusão ainda
           const atual = it.inicial - it.saida + it.recebidos;
