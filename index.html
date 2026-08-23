@@ -327,6 +327,21 @@
               <div style="display:flex;justify-content:space-between;font:600 14px var(--font-body);padding-top:10px">
                 <span>Total consumido</span><span>{{ reportTotal }}</span>
               </div>
+
+              <sc-if value="{{ hasDescarte }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:16px;padding-top:12px;border-top:1px dashed var(--color-neutral-300)">
+                  <div class="card-kicker" style="color:var(--color-accent-2-700)">Descarte (vencido sem uso — não conta como consumo)</div>
+                  <sc-for list="{{ descarteLines }}" as="dl" hint-placeholder-count="2">
+                    <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
+                      <span>{{ dl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ dl.saida }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="display:flex;justify-content:space-between;font:600 14px var(--font-body);padding-top:10px">
+                    <span>Total descartado</span><span style="color:var(--color-accent-2-700)">{{ descarteTotal }}</span>
+                  </div>
+                </div>
+              </sc-if>
+
               <div style="display:flex;gap:8px;margin-top:14px">
                 <button type="button" class="btn btn-primary" onClick="{{ downloadReportPdf }}">Baixar PDF</button>
                 <button type="button" class="btn btn-secondary" onClick="{{ shareReportPdf }}">{{ shareLabel }}</button>
@@ -632,6 +647,7 @@ class Component extends DCLogic {
     googleTokenExpiry: 0,
     driveFileIds: {},
     driveSyncError: null,
+    descarteLedger: {},
     reportPeriod: 'Agosto 2026',
     tasks: [],
     newTaskText: '',
@@ -1135,17 +1151,17 @@ class Component extends DCLogic {
   // de mês sincronizada) e substitui state.categories. Sem isso, editar a
   // planilha manualmente nunca aparecia no app — ele só mostrava o retrato
   // estático carregado de stock-data.js.
-  async loadEstoqueFromSheet() {
-    const st = this.state;
-    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
-    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
-    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+  // Lê e converte as 6 abas de categoria de UM arquivo do Drive — usada tanto
+  // pra recarregar o mês corrente (loadEstoqueFromSheet) quanto pra auditoria de
+  // descarte, que precisa reler os 6 meses reais direto da planilha (não dá pra
+  // confiar num retrato antigo salvo localmente).
+  async fetchEstoqueCategoriesFromFile(fileId) {
     const token = await this.ensureAccessToken(false);
     const ranges = ESTOQUE_SHEET_TABS.map(t => "'" + t + "'!A3:H2000");
     const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values:batchGet?valueRenderOption=UNFORMATTED_VALUE&' +
       ranges.map(r => 'ranges=' + encodeURIComponent(r)).join('&');
     const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-    if (!res.ok) throw new Error('Não consegui reler o Estoque de ' + curKey + ': ' + await this.googleApiErrorText(res));
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
     const data = await res.json();
     const valueRanges = data.valueRanges || [];
     const today = new Date();
@@ -1157,7 +1173,7 @@ class Component extends DCLogic {
       }
       return raw != null ? String(raw) : '';
     };
-    const categories = ESTOQUE_SHEET_TABS.map((tab, i) => {
+    return ESTOQUE_SHEET_TABS.map((tab, i) => {
       const meta = ESTOQUE_TAB_META[tab];
       const rows = (valueRanges[i] && valueRanges[i].values) || [];
       const items = [];
@@ -1175,7 +1191,85 @@ class Component extends DCLogic {
       });
       return { id: meta.id, name: meta.name, unit: meta.unit, items };
     });
+  }
+
+  async loadEstoqueFromSheet() {
+    const st = this.state;
+    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
+    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
+    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    let categories;
+    try {
+      categories = await this.fetchEstoqueCategoriesFromFile(fileId);
+    } catch (e) {
+      throw new Error('Não consegui reler o Estoque de ' + curKey + ': ' + ((e && e.message) || e));
+    }
     this.setState({ categories });
+  }
+
+  // Auditoria de descarte: um item que já estava vencido e some ou é zerado de um
+  // mês pro seguinte sem uma "saída" que explique — é descarte, não consumo. Duas
+  // regras, comparando cada mês real (Março–Agosto) com o seguinte:
+  //  1) saída registrada num mês em que o item já estava vencido no início dele
+  //     -> essa saída é descarte, não consumo.
+  //  2) item vencido com estoque atual > 0 num mês, e no mês seguinte a linha some
+  //     ou o "inicial" não bate com esse atual (foi resetado) -> o estoque que
+  //     sumiu vira descarte, atribuído ao mês em que sumiu.
+  // Match entre meses por nome+validade; se a validade some (linha "zerada" sem
+  // excluir, como no exemplo real do Cloreto de Suxametônio), cai pra nome sozinho
+  // quando não é ambíguo (só uma linha com esse nome na categoria).
+  async buildDescarteLedger() {
+    const monthOrder = ['Março 2026', 'Abril 2026', 'Maio 2026', 'Junho 2026', 'Julho 2026', 'Agosto 2026'];
+    const byMonth = {};
+    for (const key of monthOrder) {
+      const fileId = this.state.driveFileIds[key] || SEED_DRIVE_FILE_IDS[key];
+      if (!fileId) continue;
+      byMonth[key] = await this.fetchEstoqueCategoriesFromFile(fileId);
+    }
+    const endOfMonth = (key) => {
+      const idx = monthOrder.indexOf(key);
+      const cal = ['Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto'];
+      const mi = cal.indexOf(key.split(' ')[0]); // 0-indexado, Março=0
+      return new Date(2026, mi + 1, 0, 23, 59, 59); // último dia daquele mês
+    };
+    const findItem = (cat, nome, validade) => {
+      if (!cat) return null;
+      const exact = validade ? cat.items.find(it => it.nome === nome && it.validade === validade) : null;
+      if (exact) return exact;
+      const byName = cat.items.filter(it => it.nome === nome);
+      return byName.length === 1 ? byName[0] : null; // ambíguo com >1 -> não arrisca
+    };
+    const ledger = {}; // monthKey -> [{catId, catName, nome, validade, qtd, motivo}]
+    monthOrder.forEach(k => { ledger[k] = []; });
+    for (let mi = 0; mi < monthOrder.length; mi++) {
+      const key = monthOrder[mi];
+      const cats = byMonth[key];
+      if (!cats) continue;
+      const nextKey = monthOrder[mi + 1];
+      const nextCats = nextKey ? byMonth[nextKey] : null;
+      const eom = endOfMonth(key);
+      cats.forEach(cat => {
+        const nextCat = nextCats ? nextCats.find(c => c.id === cat.id) : null;
+        cat.items.forEach(it => {
+          const d = this.parseValidadeDate(it.validade);
+          const jaVencido = d && d <= eom;
+          if (!jaVencido) return;
+          if (it.saida > 0) {
+            ledger[key].push({ catId: cat.id, catName: cat.name, nome: it.nome, validade: it.validade, qtd: it.saida, motivo: 'saída registrada após vencido' });
+            return;
+          }
+          if (!nextKey) return; // mês atual (Agosto) — sem "mês seguinte" pra confirmar reset/exclusão ainda
+          const atual = it.inicial - it.saida + it.recebidos;
+          if (atual <= 0) return;
+          const found = findItem(nextCat, it.nome, it.validade);
+          const continuouIgual = found && found.inicial === atual;
+          if (!continuouIgual) {
+            ledger[nextKey].push({ catId: cat.id, catName: cat.name, nome: it.nome, validade: it.validade, qtd: atual, motivo: found ? 'zerado sem consumo ao vencer' : 'linha excluída ao vencer' });
+          }
+        });
+      });
+    }
+    return ledger;
   }
 
   async syncAllFromSheets() {
@@ -1183,6 +1277,8 @@ class Component extends DCLogic {
     await this.loadAcqPagesFromSheet().catch(e => errors.push('Aquisições — ' + ((e && e.message) || e)));
     await this.loadEstoqueFromSheet().catch(e => errors.push('Estoque — ' + ((e && e.message) || e)));
     await this.loadTasksAndNotesFromSheet().catch(e => errors.push('Tarefas/Notas — ' + ((e && e.message) || e)));
+    await this.buildDescarteLedger().then(ledger => this.setState({ descarteLedger: ledger }))
+      .catch(e => errors.push('Descarte — ' + ((e && e.message) || e)));
     if (errors.length) throw new Error(errors.join(' | '));
   }
 
@@ -1320,7 +1416,7 @@ class Component extends DCLogic {
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
-  buildReportPdf(kicker, monthLabel, lines, total) {
+  buildReportPdf(kicker, monthLabel, lines, total, descarteLines, descarteTotal) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const marginX = 48;
@@ -1348,6 +1444,26 @@ class Component extends DCLogic {
     doc.setFontSize(13); doc.setTextColor(20);
     doc.text('Total consumido', marginX, y);
     doc.text(String(total), 547, y, { align: 'right' });
+    y += 20;
+
+    if (descarteLines && descarteLines.length) {
+      if (y > 740) { doc.addPage(); y = 64; }
+      y += 18;
+      doc.setFontSize(11); doc.setTextColor(170, 10, 70);
+      doc.text('DESCARTE (vencido sem uso — não conta como consumo)', marginX, y); y += 16;
+      doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 16;
+      descarteLines.forEach(dl => {
+        if (y > 780) { doc.addPage(); y = 64; }
+        doc.setTextColor(30); doc.text(String(dl.nome), marginX, y);
+        doc.setTextColor(170, 10, 70); doc.text('-' + dl.saida, 547, y, { align: 'right' });
+        doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
+        y += 20;
+      });
+      y += 10; doc.setDrawColor(170, 10, 70); doc.line(marginX, y, 547, y); y += 20;
+      doc.setFontSize(13); doc.setTextColor(170, 10, 70);
+      doc.text('Total descartado', marginX, y);
+      doc.text(String(descarteTotal || 0), 547, y, { align: 'right' });
+    }
     return doc;
   }
 
@@ -1673,26 +1789,49 @@ class Component extends DCLogic {
       year: y, tagClass: yearSelected(y) ? 'tag-accent' : 'tag-outline',
       toggle: () => this.setState(x => ({ reportYears: { ...x.reportYears, [y]: !yearSelected(y) } })),
     }));
-    const reportLines = [];
-    let reportTotal = 0;
-    if (isGeneralReport || isAnnualReport) {
-      const sums = {};
+    // Descarte vs consumo: um item que já estava vencido quando a saída foi
+    // registrada (ou que sumiu/zerou sem consumo ao vencer, via buildDescarteLedger)
+    // não é consumo de verdade — some do "Saídas" normal e vira uma seção à parte.
+    const descarteFor = (monthKey) => (s.descarteLedger && s.descarteLedger[monthKey]) || [];
+    const descarteSaidaFor = (monthKey, catId, nome) => descarteFor(monthKey)
+      .filter(d => d.catId === catId && d.nome === nome && d.motivo === 'saída registrada após vencido')
+      .reduce((sum, d) => sum + d.qtd, 0);
+    const scopeMonthKeys = () => {
+      if (!isGeneralReport && !isAnnualReport) return [reportMonthLabel];
+      const keys = [];
       s.months.forEach((label, idx) => {
         const y = s.years[idx];
         if (isAnnualReport && y !== annualYear) return;
         if (isGeneralReport && !yearSelected(y)) return;
-        getCatsForKey(monthKeys[idx]).forEach(c => {
-          if (!s.reportCats[c.id]) return;
-          c.items.forEach(it => { if (it.saida > 0) sums[it.nome] = (sums[it.nome] || 0) + it.saida; });
+        keys.push(monthKeys[idx]);
+      });
+      return keys;
+    };
+    const reportLines = [];
+    let reportTotal = 0;
+    const consumoSums = {};
+    scopeMonthKeys().forEach(mk => {
+      getCatsForKey(mk).forEach(c => {
+        if (!s.reportCats[c.id]) return;
+        c.items.forEach(it => {
+          if (it.saida <= 0) return;
+          const consumoQtd = it.saida - descarteSaidaFor(mk, c.id, it.nome);
+          if (consumoQtd > 0) consumoSums[it.nome] = (consumoSums[it.nome] || 0) + consumoQtd;
         });
       });
-      Object.entries(sums).forEach(([nome, saida]) => { reportLines.push({ nome, saida }); reportTotal += saida; });
-    } else {
-      getCatsForKey(reportMonthLabel).forEach(c => {
-        if (!s.reportCats[c.id]) return;
-        c.items.forEach(it => { if (it.saida > 0) { reportLines.push({ nome: it.nome, saida: it.saida }); reportTotal += it.saida; } });
+    });
+    Object.entries(consumoSums).forEach(([nome, saida]) => { reportLines.push({ nome, saida }); reportTotal += saida; });
+
+    const descarteSums = {};
+    scopeMonthKeys().forEach(mk => {
+      descarteFor(mk).forEach(d => {
+        if (!s.reportCats[d.catId]) return;
+        descarteSums[d.nome] = (descarteSums[d.nome] || 0) + d.qtd;
       });
-    }
+    });
+    const descarteLines = [];
+    let descarteTotal = 0;
+    Object.entries(descarteSums).forEach(([nome, qtd]) => { descarteLines.push({ nome, saida: qtd }); descarteTotal += qtd; });
     const reportKicker = isGeneralReport
       ? ('Geral · ' + (selectedYears.length === 0 ? 'nenhum ano selecionado' : selectedYears.length === distinctYears.length ? 'todos os anos' : selectedYears.join(', ')))
       : isAnnualReport ? ('Ano completo · ' + annualYear)
@@ -1953,14 +2092,15 @@ class Component extends DCLogic {
       isGeneralReport, reportYearChips,
       reportCatChips, reportGenerated: s.reportGenerated, generateReport: () => this.setState({ reportGenerated: true }),
       reportLines, reportTotal, reportEmpty: reportLines.length === 0,
+      descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
       downloadReportPdf: () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal, descarteLines, descarteTotal);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         doc.save(fname);
       },
       shareReportPdf: async () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal, descarteLines, descarteTotal);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         const blob = doc.output('blob');
         const file = new File([blob], fname, { type: 'application/pdf' });
