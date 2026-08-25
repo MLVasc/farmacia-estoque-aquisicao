@@ -316,10 +316,13 @@
             <div class="card elev-sm" style="padding:16px">
               <div class="card-kicker">{{ reportKicker }}</div>
               <div class="card-title">Relatório de consumo</div>
-              <sc-for list="{{ reportLines }}" as="rl" hint-placeholder-count="3">
-                <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
-                  <span>{{ rl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ rl.saida }}</span>
-                </div>
+              <sc-for list="{{ reportSections }}" as="sec" hint-placeholder-count="2">
+                <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:12px;margin-bottom:2px">{{ sec.catName }}</div>
+                <sc-for list="{{ sec.lines }}" as="rl" hint-placeholder-count="3">
+                  <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
+                    <span>{{ rl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ rl.saida }}</span>
+                  </div>
+                </sc-for>
               </sc-for>
               <sc-if value="{{ reportEmpty }}" hint-placeholder-val="{{ false }}">
                 <div style="font:italic 13px var(--font-body);color:var(--color-neutral-500);padding:6px 0">Sem saídas registradas em {{ reportMonthLabel }} para as categorias selecionadas.</div>
@@ -331,10 +334,13 @@
               <sc-if value="{{ hasDescarte }}" hint-placeholder-val="{{ false }}">
                 <div style="margin-top:16px;padding-top:12px;border-top:1px dashed var(--color-neutral-300)">
                   <div class="card-kicker" style="color:var(--color-accent-2-700)">Descarte (vencido sem uso — não conta como consumo)</div>
-                  <sc-for list="{{ descarteLines }}" as="dl" hint-placeholder-count="2">
-                    <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
-                      <span>{{ dl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ dl.saida }}</span>
-                    </div>
+                  <sc-for list="{{ descarteSections }}" as="dsec" hint-placeholder-count="2">
+                    <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:10px;margin-bottom:2px">{{ dsec.catName }}</div>
+                    <sc-for list="{{ dsec.lines }}" as="dl" hint-placeholder-count="2">
+                      <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
+                        <span>{{ dl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ dl.saida }}</span>
+                      </div>
+                    </sc-for>
                   </sc-for>
                   <div style="display:flex;justify-content:space-between;font:600 14px var(--font-body);padding-top:10px">
                     <span>Total descartado</span><span style="color:var(--color-accent-2-700)">{{ descarteTotal }}</span>
@@ -1237,6 +1243,15 @@ class Component extends DCLogic {
       const mi = CAL_PT.indexOf(name); // 0-indexado, Janeiro=0
       return new Date(Number(yearStr), mi + 1, 0, 23, 59, 59); // último dia daquele mês
     };
+    // Usado só pra regra 1 (saída x vencido): consumir dentro do próprio mês em
+    // que o item vence é consumo válido (a validade cobre o mês inteiro) — só
+    // vira descarte a saída registrada num mês em que o item JÁ tinha vencido
+    // ANTES dele começar.
+    const startOfMonth = (key) => {
+      const [name, yearStr] = key.split(' ');
+      const mi = CAL_PT.indexOf(name);
+      return new Date(Number(yearStr), mi, 1, 0, 0, 0);
+    };
     const findItem = (cat, nome, validade) => {
       if (!cat) return null;
       const exact = validade ? cat.items.find(it => it.nome === nome && it.validade === validade) : null;
@@ -1258,17 +1273,19 @@ class Component extends DCLogic {
         const nextCat = nextCats ? nextCats.find(c => c.id === cat.id) : null;
         cat.items.forEach(it => {
           const d = this.parseValidadeDate(it.validade);
-          const jaVencido = d && d <= eom;
-          if (!jaVencido) return;
-          // Sem "return" aqui de propósito: um item pode ter uma saída parcial já
-          // vencido (regra 1, abaixo) E o restante ainda sumir/zerar no mês
-          // seguinte sem consumo (regra 2, adiante) — são duas perdas diferentes,
-          // não uma só. Ignorar isso foi o que deixou passar batido os ~800
-          // restantes de Dipirona Amp de julho/2026 (só os 100 da saída tinham
-          // sido contados).
-          if (it.saida > 0) {
+          if (!d) return;
+          // Regra 1 — saída x vencido: só é descarte se o item já tinha vencido
+          // ANTES deste mês começar. Saída dentro do próprio mês de vencimento é
+          // consumo válido (ex.: item vence 06/26, saída em junho = consumo; se
+          // ainda saísse algo em julho, aí sim seria descarte).
+          if (d < startOfMonth(key) && it.saida > 0) {
             ledger[key].push({ catId: cat.id, catName: cat.name, nome: it.nome, validade: it.validade, qtd: it.saida, motivo: 'saída registrada após vencido' });
           }
+          // Regra 2 — sobra sem consumo ao vencer: item que vence até o fim
+          // deste mês e ainda tem estoque > 0; se a linha sumir ou for zerada no
+          // mês seguinte sem essa sobra ter sido consumida, vira descarte,
+          // atribuído ao mês em que sumiu/zerou.
+          if (d > eom) return; // ainda não venceu nem esse mês
           if (!nextKey) return; // mês atual (Agosto) — sem "mês seguinte" pra confirmar reset/exclusão ainda
           const atual = it.inicial - it.saida + it.recebidos;
           if (atual <= 0) return;
@@ -1427,7 +1444,7 @@ class Component extends DCLogic {
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
-  buildReportPdf(kicker, monthLabel, lines, total, descarteLines, descarteTotal) {
+  buildReportPdf(kicker, monthLabel, sections, total, descarteSections, descarteTotal) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const marginX = 48;
@@ -1438,39 +1455,43 @@ class Component extends DCLogic {
     doc.text('Relatório de consumo', marginX, y); y += 28;
     doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 18;
     doc.setFontSize(11);
-    if (lines.length === 0) {
+    const writeSections = (secs, color) => {
+      secs.forEach(sec => {
+        if (y > 770) { doc.addPage(); y = 64; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(90);
+        doc.text(sec.catName.toUpperCase(), marginX, y); y += 15;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+        sec.lines.forEach(rl => {
+          if (y > 780) { doc.addPage(); y = 64; }
+          doc.setTextColor(30); doc.text(String(rl.nome), marginX, y);
+          doc.setTextColor(...color); doc.text('-' + rl.saida, 547, y, { align: 'right' });
+          doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
+          y += 20;
+        });
+        y += 4;
+      });
+    };
+    if (!sections.length) {
       doc.setTextColor(140);
       doc.text('Sem saídas registradas em ' + monthLabel + ' para as categorias selecionadas.', marginX, y);
       y += 20;
     } else {
-      lines.forEach(rl => {
-        if (y > 780) { doc.addPage(); y = 64; }
-        doc.setTextColor(30); doc.text(String(rl.nome), marginX, y);
-        doc.setTextColor(170, 10, 70); doc.text('-' + rl.saida, 547, y, { align: 'right' });
-        doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
-        y += 20;
-      });
+      writeSections(sections, [170, 10, 70]);
     }
-    y += 10; doc.setDrawColor(20); doc.line(marginX, y, 547, y); y += 20;
+    y += 6; doc.setDrawColor(20); doc.line(marginX, y, 547, y); y += 20;
     doc.setFontSize(13); doc.setTextColor(20);
     doc.text('Total consumido', marginX, y);
     doc.text(String(total), 547, y, { align: 'right' });
     y += 20;
 
-    if (descarteLines && descarteLines.length) {
+    if (descarteSections && descarteSections.length) {
       if (y > 740) { doc.addPage(); y = 64; }
       y += 18;
       doc.setFontSize(11); doc.setTextColor(170, 10, 70);
       doc.text('DESCARTE (vencido sem uso — não conta como consumo)', marginX, y); y += 16;
       doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 16;
-      descarteLines.forEach(dl => {
-        if (y > 780) { doc.addPage(); y = 64; }
-        doc.setTextColor(30); doc.text(String(dl.nome), marginX, y);
-        doc.setTextColor(170, 10, 70); doc.text('-' + dl.saida, 547, y, { align: 'right' });
-        doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
-        y += 20;
-      });
-      y += 10; doc.setDrawColor(170, 10, 70); doc.line(marginX, y, 547, y); y += 20;
+      writeSections(descarteSections, [170, 10, 70]);
+      y += 6; doc.setDrawColor(170, 10, 70); doc.line(marginX, y, 547, y); y += 20;
       doc.setFontSize(13); doc.setTextColor(170, 10, 70);
       doc.text('Total descartado', marginX, y);
       doc.text(String(descarteTotal || 0), 547, y, { align: 'right' });
@@ -1818,31 +1839,53 @@ class Component extends DCLogic {
       });
       return keys;
     };
-    const reportLines = [];
-    let reportTotal = 0;
-    const consumoSums = {};
+    // Agrupado por categoria (mesma ordem das abas da planilha: Injetáveis,
+    // Comprimidos, Pomadas/Gotas, Controlada, Material Cirúrgico, Soros) e, dentro
+    // de cada uma, em ordem alfabética — assim fica rápido de achar o item, igual
+    // pedido.
+    const catOrder = s.categories.map(c => ({ id: c.id, name: c.name }));
+    const buildSections = (byCat) => {
+      const sections = []; const flatLines = []; let total = 0;
+      catOrder.forEach(({ id, name }) => {
+        const map = byCat[id];
+        if (!map) return;
+        const lines = Object.entries(map)
+          .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+          .map(([nome, saida]) => ({ nome, saida }));
+        if (!lines.length) return;
+        const subtotal = lines.reduce((sum, l) => sum + l.saida, 0);
+        sections.push({ catId: id, catName: name, lines, subtotal });
+        lines.forEach(l => { flatLines.push(l); total += l.saida; });
+      });
+      return { sections, flatLines, total };
+    };
+
+    const consumoByCat = {};
     scopeMonthKeys().forEach(mk => {
       getCatsForKey(mk).forEach(c => {
         if (!s.reportCats[c.id]) return;
         c.items.forEach(it => {
           if (it.saida <= 0) return;
           const consumoQtd = it.saida - descarteSaidaFor(mk, c.id, it.nome);
-          if (consumoQtd > 0) consumoSums[it.nome] = (consumoSums[it.nome] || 0) + consumoQtd;
+          if (consumoQtd <= 0) return;
+          consumoByCat[c.id] = consumoByCat[c.id] || {};
+          consumoByCat[c.id][it.nome] = (consumoByCat[c.id][it.nome] || 0) + consumoQtd;
         });
       });
     });
-    Object.entries(consumoSums).forEach(([nome, saida]) => { reportLines.push({ nome, saida }); reportTotal += saida; });
+    const consumoBuilt = buildSections(consumoByCat);
+    const reportSections = consumoBuilt.sections, reportLines = consumoBuilt.flatLines, reportTotal = consumoBuilt.total;
 
-    const descarteSums = {};
+    const descarteByCat = {};
     scopeMonthKeys().forEach(mk => {
       descarteFor(mk).forEach(d => {
         if (!s.reportCats[d.catId]) return;
-        descarteSums[d.nome] = (descarteSums[d.nome] || 0) + d.qtd;
+        descarteByCat[d.catId] = descarteByCat[d.catId] || {};
+        descarteByCat[d.catId][d.nome] = (descarteByCat[d.catId][d.nome] || 0) + d.qtd;
       });
     });
-    const descarteLines = [];
-    let descarteTotal = 0;
-    Object.entries(descarteSums).forEach(([nome, qtd]) => { descarteLines.push({ nome, saida: qtd }); descarteTotal += qtd; });
+    const descarteBuilt = buildSections(descarteByCat);
+    const descarteSections = descarteBuilt.sections, descarteLines = descarteBuilt.flatLines, descarteTotal = descarteBuilt.total;
     const reportKicker = isGeneralReport
       ? ('Geral · ' + (selectedYears.length === 0 ? 'nenhum ano selecionado' : selectedYears.length === distinctYears.length ? 'todos os anos' : selectedYears.join(', ')))
       : isAnnualReport ? ('Ano completo · ' + annualYear)
@@ -2102,16 +2145,16 @@ class Component extends DCLogic {
       reportMonthLabel, reportMonthOptions, reportKicker, onReportMonthChange: e => this.setState({ reportPeriod: e.target.value }),
       isGeneralReport, reportYearChips,
       reportCatChips, reportGenerated: s.reportGenerated, generateReport: () => this.setState({ reportGenerated: true }),
-      reportLines, reportTotal, reportEmpty: reportLines.length === 0,
-      descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0,
+      reportLines, reportTotal, reportEmpty: reportLines.length === 0, reportSections,
+      descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0, descarteSections,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
       downloadReportPdf: () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal, descarteLines, descarteTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         doc.save(fname);
       },
       shareReportPdf: async () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportLines, reportTotal, descarteLines, descarteTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         const blob = doc.output('blob');
         const file = new File([blob], fname, { type: 'application/pdf' });
