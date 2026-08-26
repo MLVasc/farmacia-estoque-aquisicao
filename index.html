@@ -607,7 +607,13 @@ const ACQ_TAB_NAMES = {
 const ACQ_FIELD_KEYS = {
   aquisicoes: ['par', 'solemp', 'empresa', 'descricao', 'statusSolemp', 'empenho', 'statusEmpenho', 'valorEmp', 'obs', 'contato', 'respondido', 'chegadaMaterial', 'nfeNum', 'entradaNfe', 'statusNfe', 'envioNfe'],
   dispensa: ['par', 'nup', 'descricao', 'valor', 'fase', 'nupObtencao', 'cp', 'dfd', 'pp', 'tr', 'do', 'modeloAgu', 'adequacao', 'ato'],
-  necessidades: ['nd', 'valor', 'necessidade', 'obs'],
+  // "valorAntigo" = coluna B ("Valor"), sempre vazia — sobra de uma versão
+  // anterior da planilha. A coluna D ("VALOR") é a que tem dado de verdade e foi
+  // adicionada depois; sem essa entrada aqui, a leitura por posição jogava esse
+  // valor real dentro de "obs" (que ficou empurrado pra coluna E). Fica mapeada
+  // só pra manter a posição das colunas certa — não aparece no diálogo (ver
+  // seedAcqPages()).
+  necessidades: ['nd', 'valorAntigo', 'necessidade', 'valor', 'obs'],
   ar: ['btu', 'local', 'solemp', 'empenho', 'valor', 'par'],
   metas: ['texto', 'nd'],
 };
