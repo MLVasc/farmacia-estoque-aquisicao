@@ -457,7 +457,7 @@
                 </div>
               </sc-if>
               <div class="field"><label>Nome</label><input class="input" value="{{ dlg.nome }}" onChange="{{ onDlgNome }}" readOnly="{{ isArchivedView }}"></div>
-              <div class="field"><label>Validade</label><input class="input" placeholder="mm/aa" value="{{ dlg.validade }}" onChange="{{ onDlgValidade }}" readOnly="{{ isArchivedView }}"></div>
+              <div class="field"><label>Validade</label><input class="input" placeholder="dd/mm/aaaa ou mm/aaaa" value="{{ dlg.validade }}" onChange="{{ onDlgValidade }}" readOnly="{{ isArchivedView }}"></div>
               <div class="field"><label>Estoque inicial</label><input class="input" type="number" value="{{ dlg.inicial }}" onChange="{{ onDlgInicial }}" readOnly="{{ isArchivedView }}"></div>
               <div class="field"><label>Saída</label><input class="input" type="number" value="{{ dlg.saida }}" onChange="{{ onDlgSaida }}" readOnly="{{ isArchivedView }}"></div>
               <div class="field"><label>Recebidos</label><input class="input" type="number" value="{{ dlg.recebidos }}" onChange="{{ onDlgRecebidos }}" readOnly="{{ isArchivedView }}"></div>
@@ -673,13 +673,23 @@ class Component extends DCLogic {
     // valor inicial. pulseSync() zera a cada ação sincronizada; isso soma 1 por
     // minuto enquanto nada mais mexe.
     this._syncClock = setInterval(() => this.setState(s => ({ lastSyncMin: s.lastSyncMin + 1 })), 60000);
+    // Com sessão do Google salva, quem manda no mês/ano atual é a ressincronização
+    // (loadTasksAndNotesFromSheet) — não esse seed estático, que ficou parado em
+    // Agosto. Sem essa checagem, se o import resolvesse depois da sincronização,
+    // ele pisava de volta num mês já virado (esse era o bug do "some ao sincronizar").
+    let hasSavedToken = false;
+    try {
+      const saved = JSON.parse(localStorage.getItem('gsi_token') || 'null');
+      hasSavedToken = !!(saved && saved.token && saved.expiry > Date.now() + 30000);
+    } catch (e) { /* localStorage indisponível ou dado corrompido */ }
     import('./stock-data.js').then(m => {
       const cur = m.MONTHS[m.CURRENT_MONTH_INDEX];
       const hist = {};
       m.MONTHS.forEach(lbl => { if (lbl !== cur) hist[lbl + ' 2026'] = m.CATEGORIES_BY_MONTH[lbl]; });
-      this.setState({
+      const base = { categories: m.CATEGORIES_BY_MONTH[cur], history: hist, activeCategory: m.CATEGORIES_BY_MONTH[cur][0].id, dataLoaded: true };
+      this.setState(hasSavedToken ? base : {
+        ...base,
         months: m.MONTHS, years: m.MONTHS.map(() => 2026), monthIndex: m.CURRENT_MONTH_INDEX, viewMonthIndex: m.CURRENT_MONTH_INDEX, reportPeriod: cur + ' 2026',
-        categories: m.CATEGORIES_BY_MONTH[cur], history: hist, activeCategory: m.CATEGORIES_BY_MONTH[cur][0].id, dataLoaded: true,
       });
     });
     // Substitui os registros de exemplo pelos dados reais da planilha "Saúde Aquisição 2026"
@@ -1308,12 +1318,60 @@ class Component extends DCLogic {
 
   async syncAllFromSheets() {
     const errors = [];
+    // Tarefas/Notas primeiro: é essa leitura que também traz o mês atual e os IDs
+    // de arquivo de meses virados (ver loadTasksAndNotesFromSheet) — o Estoque
+    // precisa disso já corrigido em state pra saber qual planilha/mês reler.
+    await this.loadTasksAndNotesFromSheet().catch(e => errors.push('Tarefas/Notas — ' + ((e && e.message) || e)));
     await this.loadAcqPagesFromSheet().catch(e => errors.push('Aquisições — ' + ((e && e.message) || e)));
     await this.loadEstoqueFromSheet().catch(e => errors.push('Estoque — ' + ((e && e.message) || e)));
-    await this.loadTasksAndNotesFromSheet().catch(e => errors.push('Tarefas/Notas — ' + ((e && e.message) || e)));
     await this.buildDescarteLedger().then(ledger => this.setState({ descarteLedger: ledger }))
       .catch(e => errors.push('Descarte — ' + ((e && e.message) || e)));
     if (errors.length) throw new Error(errors.join(' | '));
+  }
+
+  // Reconstrói months/years a partir de "Março 2026" (o começo fixo conhecido)
+  // até o mês/ano persistido em "estado/mesAtual" na aba App Dados — evita ter
+  // que guardar o array inteiro remotamente, só o mês corrente.
+  buildMonthsUpTo(targetLabel, targetYear) {
+    const months = ['Março']; const years = [2026];
+    let guard = 0;
+    while (!(months[months.length - 1] === targetLabel && years[years.length - 1] === targetYear) && guard++ < 60) {
+      const nextName = this.nextMonthName(months[months.length - 1]);
+      const nextYear = nextName === 'Janeiro' ? years[years.length - 1] + 1 : years[years.length - 1];
+      months.push(nextName); years.push(nextYear);
+    }
+    return { months, years };
+  }
+
+  // Grava/atualiza uma linha da aba "App Dados" identificada por (tipo, chave) —
+  // acha a linha existente relendo a aba (evita duplicar a cada chamada).
+  async upsertAppDataRow(tipo, chave, texto, data) {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!A2:E2000";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    const rows = ((await res.json()).values || []);
+    const idx = rows.findIndex(r => r[0] === tipo && r[1] === chave);
+    const row = idx === -1 ? rows.length + 2 : idx + 2;
+    const writeRange = "'" + APP_DATA_TAB + "'!A" + row;
+    const values = [[tipo, chave, texto || '', data || '', '']];
+    const putRes = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(writeRange) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range: writeRange, values }) }
+    );
+    if (!putRes.ok) throw new Error(await this.googleApiErrorText(putRes));
+  }
+
+  // Persiste a virada de mês (chamado por confirmRollover) — sem isso, o mês
+  // atual só existia na memória do app e um F5/ressincronização voltava pro mês
+  // padrão embutido no código (Agosto).
+  async saveRolloverStateRemote(monthLabel, year, fileId, monthKey) {
+    await this.upsertAppDataRow('estado', 'mesAtual', monthLabel, String(year));
+    if (fileId) await this.upsertAppDataRow('arquivoMes', monthKey, fileId, '');
   }
 
   // --- Tarefas e Notas de rodapé (aba "App Dados") ----------------------------
@@ -1368,17 +1426,36 @@ class Component extends DCLogic {
     const rows = ((await res.json()).values || []);
     const tasks = [];
     const notesByPage = {};
+    let mesAtual = null;
+    const arquivoMes = {};
     rows.forEach((r, ri) => {
       const tipo = r[0];
       if (!tipo) return;
       const row = ri + 2;
       if (tipo === 'task') tasks.push({ id: 'task-' + row, texto: r[2] || '', data: r[3] || '', done: r[4] === 'TRUE', _row: row });
       else if (tipo === 'nota') notesByPage[r[1]] = { texto: r[2] || '', _row: row };
+      else if (tipo === 'estado' && r[1] === 'mesAtual') mesAtual = { mes: r[2], ano: Number(r[3]) };
+      else if (tipo === 'arquivoMes' && r[1]) arquivoMes[r[1]] = r[2];
     });
-    this.setState(x => ({
-      tasks,
-      acqPages: x.acqPages.map(p => p.type === 'guide' ? p : { ...p, notes: notesByPage[p.id] ? notesByPage[p.id].texto : (p.notes || ''), _notesRow: notesByPage[p.id] ? notesByPage[p.id]._row : null }),
-    }));
+    this.setState(x => {
+      const patch = {
+        tasks,
+        acqPages: x.acqPages.map(p => p.type === 'guide' ? p : { ...p, notes: notesByPage[p.id] ? notesByPage[p.id].texto : (p.notes || ''), _notesRow: notesByPage[p.id] ? notesByPage[p.id]._row : null }),
+      };
+      // Restaura o mês atual e os arquivos de meses virados — sem isso, o mês
+      // corrente ficava só na memória e sumia num F5/ressincronização.
+      if (mesAtual && mesAtual.mes && mesAtual.ano) {
+        const { months, years } = this.buildMonthsUpTo(mesAtual.mes, mesAtual.ano);
+        const newIndex = months.length - 1;
+        patch.months = months;
+        patch.years = years;
+        patch.monthIndex = newIndex;
+        patch.viewMonthIndex = newIndex;
+        patch.reportPeriod = months[newIndex] + ' ' + years[newIndex];
+      }
+      if (Object.keys(arquivoMes).length) patch.driveFileIds = { ...x.driveFileIds, ...arquivoMes };
+      return patch;
+    });
   }
 
   async appendTaskRemote(task) {
@@ -1666,7 +1743,7 @@ class Component extends DCLogic {
   scheduleEstoqueFieldSync(catId, row, patch) {
     const tab = ESTOQUE_CAT_TO_TAB[catId];
     if (!tab) return;
-    const colMap = { inicial: 'E', saida: 'F', recebidos: 'G' };
+    const colMap = { nome: 'B', validade: 'C', inicial: 'E', saida: 'F', recebidos: 'G' };
     Object.keys(patch).forEach(field => {
       const col = colMap[field];
       if (!col) return;
@@ -2035,6 +2112,9 @@ class Component extends DCLogic {
               newFileId = await this.copyDriveFile(sourceFileId, newName);
               await this.rolloverSheetTabs(newFileId);
             }
+            // Sem isso, o mês novo só existia na memória do app — um F5 ou uma
+            // ressincronização voltava pro mês padrão embutido no código.
+            await this.saveRolloverStateRemote(nextName, nextYear, newFileId, nextKey);
           } catch (e) {
             driveError = (e && e.message) || String(e);
           }
