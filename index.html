@@ -95,7 +95,13 @@
 
           <div style="margin-bottom:24px;display:flex;flex-direction:column;align-items:center;text-align:center">
             <div style="font: 600 10px var(--font-body); letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600); margin-bottom: 8px; width: 353px; height: 16px; text-align: left">Virada de mês</div>
-            <p style="font: 14px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 0 0 12px; max-width: 34ch; text-align: justify; width: 299px; height: 64px">Ao virar, o Estoque Atual de cada item vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram.</p><button type="button" class="btn btn-primary" onClick="{{ openRollover }}">Virar para {{ nextMonthLabel }}</button>
+            <p style="font: 14px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 0 0 12px; max-width: 34ch; text-align: justify; width: 299px; height: 64px">Ao virar, o Estoque Atual de cada item vira o Estoque Inicial de {{ nextMonthLabel }}. Saída e Recebidos zeram.</p>
+            <div style="display:flex;gap:8px;align-items:center">
+              <sc-if value="{{ canUndoRollover }}" hint-placeholder-val="{{ false }}">
+                <button type="button" class="btn btn-secondary" onClick="{{ undoRollover }}">Retornar para {{ undoMonthLabel }}</button>
+              </sc-if>
+              <button type="button" class="btn btn-primary" onClick="{{ openRollover }}">Virar para {{ nextMonthLabel }}</button>
+            </div>
           </div><div style="margin-bottom:8px">
             <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Ações rápidas</div>
             <div style="display:flex;gap:8px">
@@ -407,10 +413,6 @@
           </div>
 
           <button type="button" class="btn btn-secondary btn-block" onClick="{{ doSync }}">{{ syncButtonLabel }}</button>
-
-          <sc-if value="{{ canUndoRollover }}" hint-placeholder-val="{{ false }}">
-            <button type="button" class="btn btn-ghost btn-block" style="margin-top:8px;color:var(--color-accent-2-700)" onClick="{{ undoRollover }}">Retornar para {{ undoMonthLabel }} (exclui {{ undoingMonthLabel }} do app)</button>
-          </sc-if>
         </sc-if>
 
       </div>
@@ -2382,7 +2384,6 @@ class Component extends DCLogic {
       // ser apagada à mão) e faz o mês anterior voltar a ser o atual.
       canUndoRollover: s.googleSignedIn && s.monthIndex > 0,
       undoMonthLabel: s.monthIndex > 0 ? s.months[s.monthIndex - 1] + ' ' + s.years[s.monthIndex - 1] : '',
-      undoingMonthLabel: monthLabel + ' ' + yearLabel,
       undoRollover: async () => {
         if (s.monthIndex === 0) return;
         const ok = (() => { try { return confirm('Retornar para ' + s.months[s.monthIndex - 1] + ' ' + s.years[s.monthIndex - 1] + '? ' + monthLabel + ' ' + yearLabel + ' sai do controle do app (a planilha dele no Drive, se ainda existir, não é apagada automaticamente).'); } catch (e) { return true; } })();
