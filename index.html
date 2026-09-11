@@ -407,6 +407,10 @@
           </div>
 
           <button type="button" class="btn btn-secondary btn-block" onClick="{{ doSync }}">{{ syncButtonLabel }}</button>
+
+          <sc-if value="{{ canUndoRollover }}" hint-placeholder-val="{{ false }}">
+            <button type="button" class="btn btn-ghost btn-block" style="margin-top:8px;color:var(--color-accent-2-700)" onClick="{{ undoRollover }}">Retornar para {{ undoMonthLabel }} (exclui {{ undoingMonthLabel }} do app)</button>
+          </sc-if>
         </sc-if>
 
       </div>
@@ -1397,6 +1401,31 @@ class Component extends DCLogic {
     if (!putRes.ok) throw new Error(await this.googleApiErrorText(putRes));
   }
 
+  // Apaga o conteúdo de uma linha da aba "App Dados" identificada por (tipo,
+  // chave), sem mexer nas linhas de baixo (não usa deleteDimension — evitaria
+  // ter que reajustar o _row de tarefas/notas já conhecidas). Usado por
+  // "Retornar" pra esquecer o arquivoMes de um mês excluído do controle.
+  async clearAppDataRow(tipo, chave) {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!A2:E2000";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    const rows = ((await res.json()).values || []);
+    const idx = rows.findIndex(r => r[0] === tipo && r[1] === chave);
+    if (idx === -1) return;
+    const row = idx + 2;
+    const writeRange = "'" + APP_DATA_TAB + "'!A" + row + ':E' + row;
+    const putRes = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(writeRange) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range: writeRange, values: [['', '', '', '', '']] }) }
+    );
+    if (!putRes.ok) throw new Error(await this.googleApiErrorText(putRes));
+  }
+
   // Persiste a virada de mês (chamado por confirmRollover) — sem isso, o mês
   // atual só existia na memória do app e um F5/ressincronização voltava pro mês
   // padrão embutido no código (Agosto).
@@ -2346,6 +2375,44 @@ class Component extends DCLogic {
       },
       syncDotColor: alertCount > 0 ? 'var(--color-accent-700)' : 'var(--color-accent-600)',
       syncStripText: 'Sincronizado com Google Planilhas · há ' + s.lastSyncMin + ' min',
+
+      // "Retornar" — pra desfazer uma virada de mês feita por engano (ex.: testar
+      // virar mês e depois querer voltar). Só some do app: exclui o mês atual do
+      // controle (não mexe na planilha do Drive dele — se ainda existir, precisa
+      // ser apagada à mão) e faz o mês anterior voltar a ser o atual.
+      canUndoRollover: s.googleSignedIn && s.monthIndex > 0,
+      undoMonthLabel: s.monthIndex > 0 ? s.months[s.monthIndex - 1] + ' ' + s.years[s.monthIndex - 1] : '',
+      undoingMonthLabel: monthLabel + ' ' + yearLabel,
+      undoRollover: async () => {
+        if (s.monthIndex === 0) return;
+        const ok = (() => { try { return confirm('Retornar para ' + s.months[s.monthIndex - 1] + ' ' + s.years[s.monthIndex - 1] + '? ' + monthLabel + ' ' + yearLabel + ' sai do controle do app (a planilha dele no Drive, se ainda existir, não é apagada automaticamente).'); } catch (e) { return true; } })();
+        if (!ok) return;
+        const prevIndex = s.monthIndex - 1;
+        const prevLabel = s.months[prevIndex], prevYear = s.years[prevIndex];
+        const undoneKey = monthLabel + ' ' + yearLabel;
+        const wasLastMonth = s.monthIndex === s.months.length - 1;
+        this.setState({ syncing: true });
+        try {
+          await this.saveRolloverStateRemote(prevLabel, prevYear, null, prevLabel + ' ' + prevYear);
+          if (wasLastMonth) await this.clearAppDataRow('arquivoMes', undoneKey);
+        } catch (e) {
+          this.reportSyncError('Não consegui salvar o retorno no Drive: ' + ((e && e.message) || e));
+        }
+        this.setState(x => {
+          const stillLast = x.monthIndex === x.months.length - 1;
+          const months = stillLast ? x.months.slice(0, -1) : x.months;
+          const years = stillLast ? x.years.slice(0, -1) : x.years;
+          const driveFileIds = { ...x.driveFileIds };
+          if (stillLast) delete driveFileIds[undoneKey];
+          return {
+            months, years, driveFileIds,
+            monthIndex: prevIndex, viewMonthIndex: prevIndex,
+            reportPeriod: prevLabel + ' ' + prevYear,
+            syncing: false,
+          };
+        });
+        this.syncAllFromSheets().catch(e => this.reportSyncError((e && e.message) || String(e)));
+      },
 
       acqPageTabs, isGuidePage, isRecordsPage, acqVisibleRecords, acqNoRecords: isRecordsPage && acqVisibleRecords.length === 0,
       acqSearch: s.acqSearch, onAcqSearchChange: e => this.setState({ acqSearch: e.target.value }),
