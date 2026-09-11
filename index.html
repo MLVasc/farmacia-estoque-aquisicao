@@ -1217,16 +1217,47 @@ class Component extends DCLogic {
 
   async loadEstoqueFromSheet() {
     const st = this.state;
-    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
-    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
-    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const monthLabel = st.months[st.monthIndex], year = st.years[st.monthIndex];
+    const fileId = await this.resolveEstoqueFileId(monthLabel, year);
     let categories;
     try {
       categories = await this.fetchEstoqueCategoriesFromFile(fileId);
     } catch (e) {
-      throw new Error('Não consegui reler o Estoque de ' + curKey + ': ' + ((e && e.message) || e));
+      throw new Error('Não consegui reler o Estoque de ' + monthLabel + ' ' + year + ': ' + ((e && e.message) || e));
     }
     this.setState({ categories });
+  }
+
+  // Acha o ID do arquivo de Estoque do mês pedido: primeiro no que o app já
+  // conhece (driveFileIds, preenchido por uma virada de mês nesta sessão, ou
+  // SEED_DRIVE_FILE_IDS pros 6 meses seedados); se não souber, procura no Drive
+  // pelo nome — mesmo padrão usado ao criar em confirmRollover ("<ano> <MÊS
+  // ABREV> ESTOQUE FARMÁCIA"). Isso evita depender só da linha "arquivoMes" da
+  // aba App Dados ter sido gravada com sucesso: o Drive em si é quem sabe se a
+  // planilha existe. Achando pelo nome, guarda o ID (local e na planilha) pra
+  // não precisar procurar de novo.
+  async resolveEstoqueFileId(monthLabel, year) {
+    const key = monthLabel + ' ' + year;
+    const known = this.state.driveFileIds[key] || SEED_DRIVE_FILE_IDS[key];
+    if (known) return known;
+    const found = await this.findEstoqueFileIdByName(monthLabel, year);
+    if (!found) throw new Error('Não sei qual planilha do Drive é a de ' + key + ' ainda.');
+    this.setState(x => ({ driveFileIds: { ...x.driveFileIds, [key]: found } }));
+    this.upsertAppDataRow('arquivoMes', key, found, '').catch(() => {});
+    return found;
+  }
+
+  async findEstoqueFileIdByName(monthLabel, year) {
+    const name = year + ' ' + (MONTH_ABBR[monthLabel] || monthLabel.slice(0, 3).toUpperCase()) + ' ESTOQUE FARMÁCIA';
+    const token = await this.ensureAccessToken(false);
+    const q = "name = '" + name.replace(/'/g, "\\'") + "' and '" + ESTOQUE_FOLDER_ID + "' in parents and trashed = false";
+    const res = await fetch(
+      'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=' + encodeURIComponent('files(id,name)'),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    const files = (await res.json()).files || [];
+    return files.length ? files[0].id : null;
   }
 
   // Auditoria de descarte: um item que já estava vencido e some ou é zerado de um
@@ -1675,9 +1706,7 @@ class Component extends DCLogic {
     const tab = ESTOQUE_CAT_TO_TAB[catId];
     if (!tab) return null;
     const st = this.state;
-    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
-    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
-    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const fileId = await this.resolveEstoqueFileId(st.months[st.monthIndex], st.years[st.monthIndex]);
     const cat = st.categories.find(c => c.id === catId);
     const items = (cat ? cat.items : []).filter(it => it._row != null);
     const sorted = items.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -1711,9 +1740,7 @@ class Component extends DCLogic {
     const tab = ESTOQUE_CAT_TO_TAB[catId];
     if (!tab) return;
     const st = this.state;
-    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
-    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
-    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const fileId = await this.resolveEstoqueFileId(st.months[st.monthIndex], st.years[st.monthIndex]);
     const token = await this.ensureAccessToken(false);
     const gid = await this.getSheetGid(fileId, tab);
     const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + fileId + ':batchUpdate', {
@@ -1726,9 +1753,7 @@ class Component extends DCLogic {
 
   async updateEstoqueFieldRemote(tab, row, col, value) {
     const st = this.state;
-    const curKey = st.months[st.monthIndex] + ' ' + st.years[st.monthIndex];
-    const fileId = st.driveFileIds[curKey] || SEED_DRIVE_FILE_IDS[curKey];
-    if (!fileId) throw new Error('Não sei qual planilha do Drive é a de ' + curKey + ' ainda.');
+    const fileId = await this.resolveEstoqueFileId(st.months[st.monthIndex], st.years[st.monthIndex]);
     const token = await this.ensureAccessToken(false);
     const range = "'" + tab + "'!" + col + row;
     const res = await fetch(
@@ -2110,11 +2135,15 @@ class Component extends DCLogic {
             if (sourceFileId) {
               const newName = nextYear + ' ' + (MONTH_ABBR[nextName] || nextName.slice(0, 3).toUpperCase()) + ' ESTOQUE FARMÁCIA';
               newFileId = await this.copyDriveFile(sourceFileId, newName);
+              // Grava o mês novo assim que o arquivo existe — antes de ajustar os
+              // saldos abaixo, pra essa informação não ficar refém de mais uma
+              // etapa que pode falhar. (resolveEstoqueFileId também acha o arquivo
+              // pelo nome se essa gravação falhar mesmo assim, então é reforço.)
+              await this.saveRolloverStateRemote(nextName, nextYear, newFileId, nextKey);
               await this.rolloverSheetTabs(newFileId);
+            } else {
+              await this.saveRolloverStateRemote(nextName, nextYear, null, nextKey);
             }
-            // Sem isso, o mês novo só existia na memória do app — um F5 ou uma
-            // ressincronização voltava pro mês padrão embutido no código.
-            await this.saveRolloverStateRemote(nextName, nextYear, newFileId, nextKey);
           } catch (e) {
             driveError = (e && e.message) || String(e);
           }
