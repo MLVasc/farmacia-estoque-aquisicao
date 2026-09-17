@@ -612,7 +612,7 @@
 const GOOGLE_CLIENT_ID = '383103391203-gge22o26bfng3rbabcdko8b0ic4kaj5e.apps.googleusercontent.com';
 const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets';
 const ESTOQUE_FOLDER_ID = '1MOErNRNb5yCUb9H8nu-9Gb-uO0UwrasE';
-const ESTOQUE_SHEET_TABS = ['MEDICAÇÃO INJETÁVEIS', 'MEDICAÇÃO COMṔ', 'POMADAS ANESTESICOS  INALA GOTA', 'MEDICAÇÃO CONTROLADA', 'MATERIAL MED CIRUR', 'SOROS'];
+const ESTOQUE_SHEET_TABS = ['MEDICAÇÃO INJETÁVEIS', 'MEDICAÇÃO COMṔ', 'POMADAS ANESTESICOS  INALA GOTA', 'MEDICAÇÃO CONTROLADA', 'SOROS', 'MATERIAL MED CIRUR'];
 const ESTOQUE_TAB_META = {
   'MEDICAÇÃO INJETÁVEIS': { id: 'inj', name: 'Injetáveis', unit: 'UN' },
   'MEDICAÇÃO COMṔ': { id: 'comp', name: 'Comprimidos', unit: 'UN' },
@@ -799,6 +799,13 @@ class Component extends DCLogic {
         { id: 't7', nome: 'Morfina', validade: '07/26', inicial: 50, saida: 0, recebidos: 0, expired: true },
         { id: 't8', nome: 'Tramal amp', validade: '04/26', inicial: 167, saida: 0, recebidos: 0, expired: true },
       ]},
+      { id: 'sor', name: 'Soros', unit: 'UN', items: [
+        { id: 's1', nome: 'Soro glicosado 5%', validade: '46325', inicial: 20, saida: 0, recebidos: 0, expired: false },
+        { id: 's2', nome: 'Soro fisio 100ml', validade: '07/27', inicial: 540, saida: 190, recebidos: 0, expired: false },
+        { id: 's3', nome: 'Soro fisio 500ml', validade: '46507', inicial: 105, saida: 75, recebidos: 0, expired: false },
+        { id: 's4', nome: 'Soro fisio 500ml', validade: '46568', inicial: 300, saida: 0, recebidos: 0, expired: false },
+        { id: 's5', nome: 'Ringer lactato', validade: '46446', inicial: 180, saida: 0, recebidos: 0, expired: false },
+      ]},
       { id: 'mat', name: 'Material Cirúrgico', unit: 'UN/PCT/ROLO', items: [
         { id: 'm1', nome: 'Abaixador de língua', validade: '', inicial: 300, saida: 0, recebidos: 0, expired: false },
         { id: 'm2', nome: 'Agulha 13x4,5', validade: '09/27', inicial: 64, saida: 0, recebidos: 0, expired: false },
@@ -807,13 +814,6 @@ class Component extends DCLogic {
         { id: 'm5', nome: 'Agulha 25x7,0', validade: '02/29', inicial: 700, saida: 200, recebidos: 0, expired: false },
         { id: 'm6', nome: 'Agulha 30x7,0', validade: '47628', inicial: 700, saida: 0, recebidos: 0, expired: false },
         { id: 'm7', nome: 'Agulha 30x8,0', validade: '46997', inicial: 1000, saida: 0, recebidos: 0, expired: false },
-      ]},
-      { id: 'sor', name: 'Soros', unit: 'UN', items: [
-        { id: 's1', nome: 'Soro glicosado 5%', validade: '46325', inicial: 20, saida: 0, recebidos: 0, expired: false },
-        { id: 's2', nome: 'Soro fisio 100ml', validade: '07/27', inicial: 540, saida: 190, recebidos: 0, expired: false },
-        { id: 's3', nome: 'Soro fisio 500ml', validade: '46507', inicial: 105, saida: 75, recebidos: 0, expired: false },
-        { id: 's4', nome: 'Soro fisio 500ml', validade: '46568', inicial: 300, saida: 0, recebidos: 0, expired: false },
-        { id: 's5', nome: 'Ringer lactato', validade: '46446', inicial: 180, saida: 0, recebidos: 0, expired: false },
       ]},
     ];
   }
