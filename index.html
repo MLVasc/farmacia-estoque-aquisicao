@@ -105,8 +105,7 @@
           </div><div style="margin-bottom:8px">
             <div style="font:600 10px var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Ações rápidas</div>
             <div style="display:flex;gap:8px">
-              <button type="button" class="btn btn-secondary" onClick="{{ goEstoqueEntrada }}">Entrada Estoque</button>
-              <button type="button" class="btn btn-secondary" onClick="{{ goEstoque }}">Saída Estoque</button>
+              <button type="button" class="btn btn-secondary" onClick="{{ goEstoqueEntrada }}">Novo Item Estoque</button>
               <button type="button" class="btn btn-secondary" onClick="{{ goNovoRegistroAquisicoes }}" style="width: 197px; height: 54px">Novo Registro&nbsp;<br>Aquisições</button>
             </div>
           </div>
@@ -360,6 +359,41 @@
               </div>
             </div>
           </sc-if>
+
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-neutral-300)">
+            <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-2-700);margin-bottom:8px">Itens em falta</div>
+            <p style="font:13px/1.5 var(--font-body);color:var(--color-neutral-700);margin:0 0 12px">Lista, por categoria, tudo que está zerado, vencido ou a vencer em até 6 meses na planilha do mês atual ({{ monthLabel }}).</p>
+            <button type="button" class="btn btn-primary btn-block" onClick="{{ generateFaltandoReport }}" style="margin-bottom:16px">Gerar relatório de itens em falta</button>
+
+            <sc-if value="{{ faltandoGenerated }}" hint-placeholder-val="{{ false }}">
+              <div class="card elev-sm" style="padding:16px">
+                <div class="card-kicker">{{ faltandoKicker }}</div>
+                <div class="card-title">Itens em falta / a vencer</div>
+                <sc-for list="{{ faltandoSections }}" as="fsec" hint-placeholder-count="2">
+                  <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:12px;margin-bottom:2px">{{ fsec.catName }}</div>
+                  <sc-for list="{{ fsec.lines }}" as="fl" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--color-neutral-200)">
+                      <div style="display:flex;align-items:center;gap:9px;min-width:0">
+                        <span style="width:9px;height:9px;border-radius:50%;background:{{ fl.bucketColor }};flex-shrink:0"></span>
+                        <div style="min-width:0">
+                          <div style="font:14px var(--font-body);color:var(--color-text)">{{ fl.nome }}</div>
+                          <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ fl.status }} · Validade {{ fl.validade }}</div>
+                        </div>
+                      </div>
+                      <div style="font:600 15px var(--font-body);color:var(--color-accent-2-700);flex-shrink:0">{{ fl.atual }}</div>
+                    </div>
+                  </sc-for>
+                </sc-for>
+                <sc-if value="{{ faltandoEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="font:italic 13px var(--font-body);color:var(--color-neutral-500);padding:6px 0">Nenhum item em falta ou a vencer nas categorias selecionadas.</div>
+                </sc-if>
+                <div style="display:flex;gap:8px;margin-top:14px">
+                  <button type="button" class="btn btn-primary" onClick="{{ downloadFaltandoPdf }}">Baixar PDF</button>
+                  <button type="button" class="btn btn-secondary" onClick="{{ shareFaltandoPdf }}">{{ shareLabel }}</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
         </sc-if>
 
         <!-- CONFIG -->
@@ -648,6 +682,7 @@ class Component extends DCLogic {
     reportCats: { inj: true, comp: true, pom: true, ctrl: true, mat: true, sor: true },
     reportYears: {},
     reportGenerated: false,
+    faltandoGenerated: false,
     acqBranch: null,
     acqDone: {},
     acqPages: this.seedAcqPages(),
@@ -690,8 +725,12 @@ class Component extends DCLogic {
     } catch (e) { /* localStorage indisponível ou dado corrompido */ }
     import('./stock-data.js').then(m => {
       const cur = m.MONTHS[m.CURRENT_MONTH_INDEX];
+      // Inclui TODOS os meses seedados aqui, até o "cur" deste arquivo estático
+      // (Agosto) — sem isso, um mês real além desse "cur" ficava sem essa cópia
+      // de fallback quando arquivado, e os relatórios dele caíam no fallback
+      // errado (mostrando o mês atual de verdade em vez do arquivado).
       const hist = {};
-      m.MONTHS.forEach(lbl => { if (lbl !== cur) hist[lbl + ' 2026'] = m.CATEGORIES_BY_MONTH[lbl]; });
+      m.MONTHS.forEach(lbl => { hist[lbl + ' 2026'] = m.CATEGORIES_BY_MONTH[lbl]; });
       const base = { categories: m.CATEGORIES_BY_MONTH[cur], history: hist, activeCategory: m.CATEGORIES_BY_MONTH[cur][0].id, dataLoaded: true };
       this.setState(hasSavedToken ? base : {
         ...base,
@@ -1047,18 +1086,31 @@ class Component extends DCLogic {
   // Em cada aba de categoria da planilha copiada: Estoque Inicial (E) vira o Estoque
   // Atual (H, já calculado pela própria fórmula da planilha) da planilha anterior;
   // Saída (F) e Recebidos (G) zeram — a mesma regra já aplicada no app.
+  // Depois de virar os saldos (Estoque Atual antigo vira Inicial novo, Saída e
+  // Recebidos zeram), remove as linhas que zeraram SÓ quando existe outra linha
+  // do mesmo material/medicamento (mesmo nome, coluna B) na mesma aba — ex.:
+  // duas linhas da mesma dipirona com validades diferentes, uma acaba (zera) e
+  // a outra continua com saldo: a que acabou sai da planilha nova. Um item
+  // sozinho (só uma linha com esse nome), mesmo zerado, NUNCA é excluído — tem
+  // que continuar aparecendo pro relatório de itens em falta.
   async rolloverSheetTabs(fileId) {
     const token = await this.ensureAccessToken(false);
     for (const tab of ESTOQUE_SHEET_TABS) {
-      const range = "'" + tab + "'!E3:H1000";
+      const range = "'" + tab + "'!B3:H1000";
       const getRes = await fetch(
         'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + '?valueRenderOption=UNFORMATTED_VALUE',
         { headers: { Authorization: 'Bearer ' + token } }
       );
       if (!getRes.ok) continue; // aba pode não existir nesse arquivo — segue pras próximas
       const rows = ((await getRes.json()).values || []);
-      const newRows = rows.map(r => [typeof r[3] === 'number' ? r[3] : 0, 0, 0]);
-      if (!newRows.length) continue;
+      if (!rows.length) continue;
+      // B=0 (nome), H=6 (Estoque Atual antes da virada, relativo ao início B).
+      const nomeCount = {};
+      rows.forEach(r => {
+        const nome = r[0] != null ? String(r[0]).trim() : '';
+        if (nome) nomeCount[nome] = (nomeCount[nome] || 0) + 1;
+      });
+      const newRows = rows.map(r => [typeof r[6] === 'number' ? r[6] : 0, 0, 0]);
       const writeRange = "'" + tab + "'!E3:G" + (2 + newRows.length);
       await fetch(
         'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(writeRange) + '?valueInputOption=USER_ENTERED',
@@ -1068,6 +1120,26 @@ class Component extends DCLogic {
           body: JSON.stringify({ range: writeRange, majorDimension: 'ROWS', values: newRows }),
         }
       );
+
+      const rowsToDelete = [];
+      rows.forEach((r, i) => {
+        const nome = r[0] != null ? String(r[0]).trim() : '';
+        const atual = typeof r[6] === 'number' ? r[6] : 0;
+        if (nome && nomeCount[nome] > 1 && atual === 0) rowsToDelete.push(i + 3);
+      });
+      if (rowsToDelete.length) {
+        const gid = await this.getSheetGid(fileId, tab);
+        // De baixo pra cima, num só batchUpdate: cada exclusão não mexe no
+        // índice das linhas ainda não excluídas (todas acima dela).
+        const requests = rowsToDelete
+          .sort((a, b) => b - a)
+          .map(row => ({ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: row - 1, endIndex: row } } }));
+        await fetch('https://sheets.googleapis.com/v4/spreadsheets/' + fileId + ':batchUpdate', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests }),
+        });
+      }
     }
   }
 
@@ -1361,8 +1433,32 @@ class Component extends DCLogic {
     await this.loadTasksAndNotesFromSheet().catch(e => errors.push('Tarefas/Notas — ' + ((e && e.message) || e)));
     await this.loadAcqPagesFromSheet().catch(e => errors.push('Aquisições — ' + ((e && e.message) || e)));
     await this.loadEstoqueFromSheet().catch(e => errors.push('Estoque — ' + ((e && e.message) || e)));
+    await this.ensureHistoryLoaded().catch(e => errors.push('Histórico — ' + ((e && e.message) || e)));
     await this.buildDescarteLedger().then(ledger => this.setState({ descarteLedger: ledger }))
       .catch(e => errors.push('Descarte — ' + ((e && e.message) || e)));
+    if (errors.length) throw new Error(errors.join(' | '));
+  }
+
+  // Garante que todo mês arquivado (qualquer um antes do atual) tenha uma cópia
+  // real em state.history, buscando do Drive quando faltar. Sem isso, um mês
+  // além dos 6 seedados em stock-data.js (Março–Agosto) ficava sem cópia ao ser
+  // arquivado, e os relatórios dele caíam no fallback errado — mostrando o mês
+  // atual de verdade em vez do arquivado (foi o caso do relatório de Agosto
+  // "copiando" Setembro). Só busca o que ainda não está em cache.
+  async ensureHistoryLoaded() {
+    const errors = [];
+    for (let i = 0; i < this.state.monthIndex; i++) {
+      const label = this.state.months[i], year = this.state.years[i];
+      const key = label + ' ' + year;
+      if (this.state.history[key]) continue;
+      try {
+        const fileId = await this.resolveEstoqueFileId(label, year);
+        const categories = await this.fetchEstoqueCategoriesFromFile(fileId);
+        this.setState(x => ({ history: { ...x.history, [key]: categories } }));
+      } catch (e) {
+        errors.push(key + ': ' + ((e && e.message) || e));
+      }
+    }
     if (errors.length) throw new Error(errors.join(' | '));
   }
 
@@ -1465,15 +1561,23 @@ class Component extends DCLogic {
     }
   }
 
-  // Próxima linha livre na aba "App Dados" — calculada a partir do que o app já
-  // conhece (tarefas + notas com linha), igual ao resto da sincronização.
-  nextAppDataRow() {
-    const st = this.state;
-    const rows = [
-      ...st.tasks.map(t => t._row),
-      ...st.acqPages.map(p => p._notesRow),
-    ].filter(r => r != null);
-    return rows.length ? Math.max(...rows) + 1 : 2;
+  // Próxima linha livre na aba "App Dados" — relê a coluna A da planilha na
+  // hora (não conta só com tarefas/notas já conhecidas pelo app): essa aba
+  // também guarda linhas de controle (estado/arquivoMes) que o app não
+  // rastreia como tarefa/nota, e calcular a partir só do que é conhecido
+  // localmente podia apontar pra uma linha já ocupada por uma delas e
+  // sobrescrever (foi o que apagou o "mês atual" sem querer).
+  async nextAppDataRow() {
+    await this.ensureAppDataTab();
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!A2:A2000";
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range),
+      { headers: { Authorization: 'Bearer ' + token } }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+    const rows = ((await res.json()).values || []);
+    return rows.length + 2;
   }
 
   async loadTasksAndNotesFromSheet() {
@@ -1523,7 +1627,7 @@ class Component extends DCLogic {
   async appendTaskRemote(task) {
     await this.ensureAppDataTab();
     const token = await this.ensureAccessToken(false);
-    const row = this.nextAppDataRow();
+    const row = await this.nextAppDataRow();
     const range = "'" + APP_DATA_TAB + "'!A" + row;
     const values = [['task', task.id, task.texto, task.data, task.done ? 'TRUE' : 'FALSE']];
     const res = await fetch(
@@ -1569,7 +1673,7 @@ class Component extends DCLogic {
       if (!res.ok) throw new Error(await this.googleApiErrorText(res));
       return existingRow;
     }
-    const row = this.nextAppDataRow();
+    const row = await this.nextAppDataRow();
     const range = "'" + APP_DATA_TAB + "'!A" + row;
     const res = await fetch(
       'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
@@ -1640,6 +1744,46 @@ class Component extends DCLogic {
       doc.setFontSize(13); doc.setTextColor(170, 10, 70);
       doc.text('Total descartado', marginX, y);
       doc.text(String(descarteTotal || 0), 547, y, { align: 'right' });
+    }
+    return doc;
+  }
+
+  // PDF do relatório de itens em falta/a vencer (sempre do mês atual — a
+  // "última planilha" — agrupado por categoria igual aos outros relatórios).
+  buildFaltandoPdf(kicker, sections) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 48;
+    let y = 64;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.setTextColor(120); doc.text(kicker.toUpperCase(), marginX, y); y += 22;
+    doc.setTextColor(20); doc.setFontSize(20);
+    doc.text('Itens em falta / a vencer', marginX, y); y += 28;
+    doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 18;
+    doc.setFontSize(11);
+    if (!sections.length) {
+      doc.setTextColor(140);
+      doc.text('Nenhum item em falta ou a vencer nas categorias selecionadas.', marginX, y);
+      y += 20;
+    } else {
+      sections.forEach(sec => {
+        if (y > 760) { doc.addPage(); y = 64; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(90);
+        doc.text(sec.catName.toUpperCase(), marginX, y); y += 15;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+        sec.lines.forEach(fl => {
+          if (y > 780) { doc.addPage(); y = 64; }
+          doc.setTextColor(30); doc.text(String(fl.nome), marginX, y);
+          doc.setTextColor(170, 10, 70); doc.text(String(fl.atual), 547, y, { align: 'right' });
+          y += 14;
+          doc.setFontSize(9); doc.setTextColor(120);
+          doc.text(fl.status + ' · Validade ' + fl.validade, marginX, y);
+          doc.setFontSize(11);
+          doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
+          y += 20;
+        });
+        y += 4;
+      });
     }
     return doc;
   }
@@ -2025,6 +2169,40 @@ class Component extends DCLogic {
     });
     const descarteBuilt = buildSections(descarteByCat);
     const descarteSections = descarteBuilt.sections, descarteLines = descarteBuilt.flatLines, descarteTotal = descarteBuilt.total;
+
+    // Itens em falta/a vencer — sempre da última planilha (o mês atual de
+    // verdade, s.categories), não do mês selecionado acima pros outros
+    // relatórios: zerado (estoque atual <= 0), vencido, ou a vencer em até 6
+    // meses (mesma régua do semáforo de Alertas).
+    const bucketStatusLabel = { vencido: 'Vencido', vermelho: 'Vence em até 2 meses', amarelo: 'Vence em até 4 meses', verde: 'Vence em até 6 meses' };
+    const bucketDotColor = { vencido: '#1a1a1a', vermelho: '#c62828', amarelo: '#c98f00', verde: '#2e7d32' };
+    const faltandoByCat = {};
+    s.categories.forEach(c => {
+      if (!s.reportCats[c.id]) return;
+      c.items.forEach(it => {
+        const atual = this.atual(it);
+        const bucket = this.expiryBucket(it);
+        if (atual > 0 && !bucket) return;
+        const parts = [];
+        if (atual <= 0) parts.push('Sem estoque');
+        if (bucket) parts.push(bucketStatusLabel[bucket]);
+        faltandoByCat[c.id] = faltandoByCat[c.id] || [];
+        faltandoByCat[c.id].push({
+          nome: it.nome, atual, validade: it.validade || '—',
+          status: parts.join(' · ') || 'Sem estoque',
+          bucketColor: bucket ? bucketDotColor[bucket] : 'var(--color-neutral-400)',
+        });
+      });
+    });
+    const faltandoSections = [];
+    catOrder.forEach(({ id, name }) => {
+      const lines = faltandoByCat[id];
+      if (!lines || !lines.length) return;
+      lines.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      faltandoSections.push({ catId: id, catName: name, lines });
+    });
+    const faltandoKicker = monthLabel + ' · ' + yearLabel;
+
     const reportKicker = isGeneralReport
       ? ('Geral · ' + (selectedYears.length === 0 ? 'nenhum ano selecionado' : selectedYears.length === distinctYears.length ? 'todos os anos' : selectedYears.join(', ')))
       : isAnnualReport ? ('Ano completo · ' + annualYear)
@@ -2162,18 +2340,27 @@ class Component extends DCLogic {
         if (s.googleSignedIn) {
           this.setState({ syncing: true });
           try {
-            const sourceFileId = s.driveFileIds[monthKey] || SEED_DRIVE_FILE_IDS[monthKey];
-            if (sourceFileId) {
-              const newName = nextYear + ' ' + (MONTH_ABBR[nextName] || nextName.slice(0, 3).toUpperCase()) + ' ESTOQUE FARMÁCIA';
-              newFileId = await this.copyDriveFile(sourceFileId, newName);
-              // Grava o mês novo assim que o arquivo existe — antes de ajustar os
-              // saldos abaixo, pra essa informação não ficar refém de mais uma
-              // etapa que pode falhar. (resolveEstoqueFileId também acha o arquivo
-              // pelo nome se essa gravação falhar mesmo assim, então é reforço.)
+            // Se já existe uma planilha desse mês no Drive (ex.: uma virada
+            // anterior que criou o arquivo mas não persistiu o estado direito),
+            // reaproveita em vez de copiar de novo e duplicar.
+            const existing = await this.findEstoqueFileIdByName(nextName, nextYear);
+            if (existing) {
+              newFileId = existing;
               await this.saveRolloverStateRemote(nextName, nextYear, newFileId, nextKey);
-              await this.rolloverSheetTabs(newFileId);
             } else {
-              await this.saveRolloverStateRemote(nextName, nextYear, null, nextKey);
+              const sourceFileId = s.driveFileIds[monthKey] || SEED_DRIVE_FILE_IDS[monthKey];
+              if (sourceFileId) {
+                const newName = nextYear + ' ' + (MONTH_ABBR[nextName] || nextName.slice(0, 3).toUpperCase()) + ' ESTOQUE FARMÁCIA';
+                newFileId = await this.copyDriveFile(sourceFileId, newName);
+                // Grava o mês novo assim que o arquivo existe — antes de ajustar os
+                // saldos abaixo, pra essa informação não ficar refém de mais uma
+                // etapa que pode falhar. (resolveEstoqueFileId também acha o arquivo
+                // pelo nome se essa gravação falhar mesmo assim, então é reforço.)
+                await this.saveRolloverStateRemote(nextName, nextYear, newFileId, nextKey);
+                await this.rolloverSheetTabs(newFileId);
+              } else {
+                await this.saveRolloverStateRemote(nextName, nextYear, null, nextKey);
+              }
             }
           } catch (e) {
             driveError = (e && e.message) || String(e);
@@ -2197,6 +2384,10 @@ class Component extends DCLogic {
           };
         });
         this.pulseSync();
+        // Refresca com o que está de verdade no Drive — importante sobretudo ao
+        // reaproveitar um arquivo existente, cujo conteúdo real pode diferir do
+        // "rolledCategories" calculado aqui localmente.
+        if (s.googleSignedIn) this.syncAllFromSheets().catch(e => this.reportSyncError((e && e.message) || String(e)));
       },
 
       search: s.search, onSearchChange: e => this.setState({ search: e.target.value }),
@@ -2294,6 +2485,28 @@ class Component extends DCLogic {
       reportLines, reportTotal, reportEmpty: reportLines.length === 0, reportSections,
       descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0, descarteSections,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
+
+      faltandoSections, faltandoEmpty: faltandoSections.length === 0, faltandoKicker,
+      faltandoGenerated: s.faltandoGenerated, generateFaltandoReport: () => this.setState({ faltandoGenerated: true }),
+      downloadFaltandoPdf: () => {
+        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoSections);
+        doc.save('itens-em-falta-' + monthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '') + '-' + yearLabel + '.pdf');
+      },
+      shareFaltandoPdf: async () => {
+        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoSections);
+        const fname = 'itens-em-falta-' + monthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '') + '-' + yearLabel + '.pdf';
+        const blob = doc.output('blob');
+        const file = new File([blob], fname, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: 'Itens em falta', text: faltandoKicker + ' — Itens em falta/a vencer' });
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+          }
+        }
+        doc.save(fname);
+      },
       downloadReportPdf: () => {
         const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
