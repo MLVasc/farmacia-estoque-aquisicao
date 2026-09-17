@@ -14,6 +14,13 @@
 <link rel="apple-touch-icon" href="icon.svg">
 <script src="https://accounts.google.com/gsi/client" async onload="window.__gsiLoaded=true" onerror="window.__gsiLoadError=true"></script>
 <script src="./support.js"></script>
+<script>
+  // Sem isso, o navegador podia guardar uma cópia antiga da página/arquivos
+  // principais e demorar pra buscar uma atualização já publicada.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+</script>
 </head>
 <body>
 <div id="splash" style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f3f2f2;gap:18px;transition:opacity .35s ease">
