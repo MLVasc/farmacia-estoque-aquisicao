@@ -370,7 +370,16 @@
           <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-neutral-300)">
             <div style="font:600 10px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-2-700);margin-bottom:8px">Itens em falta</div>
             <p style="font:13px/1.5 var(--font-body);color:var(--color-neutral-700);margin:0 0 12px">Lista, por categoria, tudo que está zerado, vencido ou a vencer em até 6 meses na planilha do mês atual ({{ monthLabel }}).</p>
-            <button type="button" class="btn btn-primary btn-block" onClick="{{ generateFaltandoReport }}" style="margin-bottom:16px">Gerar relatório de itens em falta</button>
+            <button type="button" class="btn btn-primary btn-block" onClick="{{ generateFaltandoReport }}" style="margin-bottom:12px">Gerar relatório de itens em falta</button>
+
+            <div style="margin-bottom:16px">
+              <label style="font:12px var(--font-body);color:var(--color-neutral-600);display:block;margin-bottom:6px">Categorias</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ faltandoCatChips }}" as="fc" hint-placeholder-count="6">
+                  <span class="tag {{ fc.tagClass }}" onClick="{{ fc.toggle }}" style="cursor:pointer">{{ fc.name }}</span>
+                </sc-for>
+              </div>
+            </div>
 
             <sc-if value="{{ faltandoGenerated }}" hint-placeholder-val="{{ false }}">
               <div class="card elev-sm" style="padding:16px">
@@ -687,6 +696,7 @@ class Component extends DCLogic {
     rolloverBanner: false,
     reportMonthIndex: 5,
     reportCats: { inj: true, comp: true, pom: true, ctrl: true, mat: true, sor: true },
+    faltandoCats: { inj: true, comp: true, pom: true, ctrl: true, mat: true, sor: true },
     reportYears: {},
     reportGenerated: false,
     faltandoGenerated: false,
@@ -1099,7 +1109,9 @@ class Component extends DCLogic {
   // duas linhas da mesma dipirona com validades diferentes, uma acaba (zera) e
   // a outra continua com saldo: a que acabou sai da planilha nova. Um item
   // sozinho (só uma linha com esse nome), mesmo zerado, NUNCA é excluído — tem
-  // que continuar aparecendo pro relatório de itens em falta.
+  // que continuar aparecendo pro relatório de itens em falta, mas fica sem
+  // Validade (coluna C) — uma data antiga não faz mais sentido pra um item sem
+  // estoque, e limpa fica pronto pra receber a validade do próximo lote.
   async rolloverSheetTabs(fileId) {
     const token = await this.ensureAccessToken(false);
     for (const tab of ESTOQUE_SHEET_TABS) {
@@ -1118,22 +1130,25 @@ class Component extends DCLogic {
         if (nome) nomeCount[nome] = (nomeCount[nome] || 0) + 1;
       });
       const newRows = rows.map(r => [typeof r[6] === 'number' ? r[6] : 0, 0, 0]);
-      const writeRange = "'" + tab + "'!E3:G" + (2 + newRows.length);
-      await fetch(
-        'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(writeRange) + '?valueInputOption=USER_ENTERED',
-        {
-          method: 'PUT',
-          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ range: writeRange, majorDimension: 'ROWS', values: newRows }),
-        }
-      );
+      const data = [{ range: "'" + tab + "'!E3:G" + (2 + newRows.length), values: newRows }];
 
       const rowsToDelete = [];
       rows.forEach((r, i) => {
         const nome = r[0] != null ? String(r[0]).trim() : '';
         const atual = typeof r[6] === 'number' ? r[6] : 0;
-        if (nome && nomeCount[nome] > 1 && atual === 0) rowsToDelete.push(i + 3);
+        const sheetRow = i + 3;
+        if (nome && nomeCount[nome] > 1 && atual === 0) { rowsToDelete.push(sheetRow); return; }
+        if (atual === 0) data.push({ range: "'" + tab + "'!C" + sheetRow, values: [['']] });
       });
+      await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values:batchUpdate',
+        {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+        }
+      );
+
       if (rowsToDelete.length) {
         const gid = await this.getSheetGid(fileId, tab);
         // De baixo pra cima, num só batchUpdate: cada exclusão não mexe no
@@ -2188,9 +2203,13 @@ class Component extends DCLogic {
     // meses" — mais urgente que uma validade futura, mas não é falta de
     // material). Dentro de cada grupo, ordem alfabética.
     const faltandoRank = { semEstoque: 0, vencido: 1, vermelho: 2, amarelo: 3, verde: 4 };
+    const faltandoCatChips = s.categories.map(c => ({
+      id: c.id, name: c.name, tagClass: s.faltandoCats[c.id] ? 'tag-accent' : 'tag-outline',
+      toggle: () => this.setState(x => ({ faltandoCats: { ...x.faltandoCats, [c.id]: !x.faltandoCats[c.id] } })),
+    }));
     const faltandoByCat = {};
     s.categories.forEach(c => {
-      if (!s.reportCats[c.id]) return;
+      if (!s.faltandoCats[c.id]) return;
       c.items.forEach(it => {
         const atual = this.atual(it);
         const bucket = this.expiryBucket(it);
@@ -2500,7 +2519,7 @@ class Component extends DCLogic {
       descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0, descarteSections,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
 
-      faltandoSections, faltandoEmpty: faltandoSections.length === 0, faltandoKicker,
+      faltandoSections, faltandoEmpty: faltandoSections.length === 0, faltandoKicker, faltandoCatChips,
       faltandoGenerated: s.faltandoGenerated, generateFaltandoReport: () => this.setState({ faltandoGenerated: true }),
       downloadFaltandoPdf: () => {
         const doc = this.buildFaltandoPdf(faltandoKicker, faltandoSections);
