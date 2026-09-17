@@ -2210,9 +2210,15 @@ class Component extends DCLogic {
     const faltandoByCat = {};
     s.categories.forEach(c => {
       if (!s.faltandoCats[c.id]) return;
+      // Mesmo nome com mais de uma linha (validades diferentes): se uma zera
+      // mas outra ainda tem estoque, o material não está em falta de verdade —
+      // não conta a que zerou como "Sem estoque".
+      const nomesComEstoque = {};
+      c.items.forEach(it => { if (this.atual(it) > 0) nomesComEstoque[it.nome] = true; });
       c.items.forEach(it => {
         const atual = this.atual(it);
         const bucket = this.expiryBucket(it);
+        if (atual <= 0 && nomesComEstoque[it.nome]) return;
         if (atual > 0 && !bucket) return;
         const parts = [];
         if (atual <= 0) parts.push('Sem estoque');
