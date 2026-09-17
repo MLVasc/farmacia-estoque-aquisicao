@@ -2176,6 +2176,11 @@ class Component extends DCLogic {
     // meses (mesma régua do semáforo de Alertas).
     const bucketStatusLabel = { vencido: 'Vencido', vermelho: 'Vence em até 2 meses', amarelo: 'Vence em até 4 meses', verde: 'Vence em até 6 meses' };
     const bucketDotColor = { vencido: '#1a1a1a', vermelho: '#c62828', amarelo: '#c98f00', verde: '#2e7d32' };
+    // Ordem pedida: primeiro Sem estoque, depois vence em 2/4/6 meses (vencido
+    // com saldo ainda em estoque entra entre "sem estoque" e "vence em 2
+    // meses" — mais urgente que uma validade futura, mas não é falta de
+    // material). Dentro de cada grupo, ordem alfabética.
+    const faltandoRank = { semEstoque: 0, vencido: 1, vermelho: 2, amarelo: 3, verde: 4 };
     const faltandoByCat = {};
     s.categories.forEach(c => {
       if (!s.reportCats[c.id]) return;
@@ -2186,11 +2191,13 @@ class Component extends DCLogic {
         const parts = [];
         if (atual <= 0) parts.push('Sem estoque');
         if (bucket) parts.push(bucketStatusLabel[bucket]);
+        const rank = atual <= 0 ? faltandoRank.semEstoque : faltandoRank[bucket];
         faltandoByCat[c.id] = faltandoByCat[c.id] || [];
         faltandoByCat[c.id].push({
           nome: it.nome, atual, validade: it.validade || '—',
           status: parts.join(' · ') || 'Sem estoque',
           bucketColor: bucket ? bucketDotColor[bucket] : 'var(--color-neutral-400)',
+          rank,
         });
       });
     });
@@ -2198,7 +2205,7 @@ class Component extends DCLogic {
     catOrder.forEach(({ id, name }) => {
       const lines = faltandoByCat[id];
       if (!lines || !lines.length) return;
-      lines.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      lines.sort((a, b) => a.rank - b.rank || a.nome.localeCompare(b.nome, 'pt-BR'));
       faltandoSections.push({ catId: id, catName: name, lines });
     });
     const faltandoKicker = monthLabel + ' · ' + yearLabel;
