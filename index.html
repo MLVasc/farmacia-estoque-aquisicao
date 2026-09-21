@@ -639,6 +639,8 @@ const ESTOQUE_TAB_META = {
 };
 const ESTOQUE_CAT_TO_TAB = {};
 Object.entries(ESTOQUE_TAB_META).forEach(([tab, meta]) => { ESTOQUE_CAT_TO_TAB[meta.id] = tab; });
+// Minúsculas e sem acento — pra busca achar "água" digitando "agua" (e vice-versa).
+const normalizeSearch = (str) => String(str == null ? '' : str).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const MONTH_ABBR = { Janeiro: 'JAN', Fevereiro: 'FEV', Março: 'MAR', Abril: 'ABR', Maio: 'MAI', Junho: 'JUN', Julho: 'JUL', Agosto: 'AGO', Setembro: 'SET', Outubro: 'OUT', Novembro: 'NOV', Dezembro: 'DEZ' };
 // IDs conhecidos dos arquivos já existentes no Drive (Março–Agosto/2026). Viradas
 // seguintes gravam o ID do arquivo recém-copiado em state.driveFileIds, então essa
@@ -2033,7 +2035,7 @@ class Component extends DCLogic {
       select: () => this.setState({ activeCategory: c.id, search: '' }),
     }));
 
-    const q = s.search.trim().toLowerCase();
+    const q = normalizeSearch(s.search.trim());
     const describeItem = (it, catName) => {
       const at = this.atual(it);
       let color = 'var(--color-text)';
@@ -2052,7 +2054,7 @@ class Component extends DCLogic {
     if (q) {
       visibleItems = [];
       viewCategories.forEach(c => c.items.forEach(it => {
-        if (it.nome.toLowerCase().includes(q)) {
+        if (normalizeSearch(it.nome).includes(q)) {
           visibleItems.push({ ...describeItem(it, c.name), open: () => this.setState({ itemDialog: { catId: c.id, itemId: it.id, isNew: false } }) });
         }
       }));
@@ -2255,11 +2257,11 @@ class Component extends DCLogic {
     const activeAcqPage = this.findCat(s.acqPages, s.activeAcqPage) || s.acqPages[0];
     const isGuidePage = activeAcqPage.type === 'guide';
     const isRecordsPage = !isGuidePage;
-    const aq = s.acqSearch.trim().toLowerCase();
+    const aq = normalizeSearch(s.acqSearch.trim());
     let acqVisibleRecords = [];
     if (isRecordsPage) {
       const lc = activeAcqPage.listConfig;
-      acqVisibleRecords = activeAcqPage.records.filter(r => !aq || (r[lc.title] || '').toLowerCase().includes(aq)).map(r => ({
+      acqVisibleRecords = activeAcqPage.records.filter(r => !aq || normalizeSearch(r[lc.title]).includes(aq)).map(r => ({
         id: r.id, title: r[lc.title] || '(sem título)',
         subtitle: lc.subtitle ? r[lc.subtitle] : '', hasSubtitle: !!(lc.subtitle && r[lc.subtitle]),
         tag: lc.tag ? r[lc.tag] : '', hasTag: !!(lc.tag && r[lc.tag]),
@@ -2628,7 +2630,7 @@ class Component extends DCLogic {
           .catch(e => this.reportSyncError((e && e.message) || String(e)));
       },
       syncDotColor: alertCount > 0 ? 'var(--color-accent-700)' : 'var(--color-accent-600)',
-      syncStripText: 'Sincronizado com Google Planilhas · há ' + s.lastSyncMin + ' min',
+      syncStripText: s.googleSignedIn ? 'Sincronizado com Google Planilhas · há ' + s.lastSyncMin + ' min' : 'Sincronize com o Google',
 
       // "Retornar" — pra desfazer uma virada de mês feita por engano (ex.: testar
       // virar mês e depois querer voltar). Só some do app: exclui o mês atual do
