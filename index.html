@@ -332,10 +332,17 @@
                 <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:12px;margin-bottom:2px">{{ sec.catName }}</div>
                 <sc-for list="{{ sec.lines }}" as="rl" hint-placeholder-count="3">
                   <div style="display:flex;justify-content:space-between;font:13px var(--font-body);padding:5px 0;border-bottom:1px solid var(--color-neutral-200)">
-                    <span>{{ rl.nome }}</span><span style="color:var(--color-accent-2-700)">-{{ rl.saida }}</span>
+                    <span>{{ rl.nome }}</span>
+                    <span style="display:flex;gap:10px;align-items:baseline;flex-shrink:0">
+                      <sc-if value="{{ rl.hasMedia }}" hint-placeholder-val="{{ false }}"><span style="font:11px var(--font-body);color:var(--color-neutral-600)">média {{ rl.mediaTxt }}/mês</span></sc-if>
+                      <span style="color:var(--color-accent-2-700)">-{{ rl.saida }}</span>
+                    </span>
                   </div>
                 </sc-for>
               </sc-for>
+              <sc-if value="{{ hasReportMediaInfo }}" hint-placeholder-val="{{ false }}">
+                <div style="font:italic 12px var(--font-body);color:var(--color-neutral-600);padding:8px 0 0">{{ reportMediaInfo }}</div>
+              </sc-if>
               <sc-if value="{{ reportEmpty }}" hint-placeholder-val="{{ false }}">
                 <div style="font:italic 13px var(--font-body);color:var(--color-neutral-500);padding:6px 0">Sem saídas registradas em {{ reportMonthLabel }} para as categorias selecionadas.</div>
               </sc-if>
@@ -1717,7 +1724,7 @@ class Component extends DCLogic {
   }
 
   // Monta o PDF do relatório de consumo a partir dos mesmos dados exibidos no card.
-  buildReportPdf(kicker, monthLabel, sections, total, descarteSections, descarteTotal) {
+  buildReportPdf(kicker, monthLabel, sections, total, descarteSections, descarteTotal, mediaInfo) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const marginX = 48;
@@ -1726,6 +1733,10 @@ class Component extends DCLogic {
     doc.setTextColor(120); doc.text(kicker.toUpperCase(), marginX, y); y += 22;
     doc.setTextColor(20); doc.setFontSize(20);
     doc.text('Relatório de consumo', marginX, y); y += 28;
+    if (mediaInfo) {
+      doc.setFontSize(9); doc.setTextColor(120);
+      doc.text(mediaInfo, marginX, y); y += 16;
+    }
     doc.setDrawColor(210); doc.line(marginX, y, 547, y); y += 18;
     doc.setFontSize(11);
     const writeSections = (secs, color) => {
@@ -1738,6 +1749,11 @@ class Component extends DCLogic {
           if (y > 780) { doc.addPage(); y = 64; }
           doc.setTextColor(30); doc.text(String(rl.nome), marginX, y);
           doc.setTextColor(...color); doc.text('-' + rl.saida, 547, y, { align: 'right' });
+          if (rl.hasMedia) {
+            doc.setFontSize(9); doc.setTextColor(110);
+            doc.text('média ' + rl.mediaTxt + '/mês', 490, y, { align: 'right' });
+            doc.setFontSize(11);
+          }
           doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
           y += 20;
         });
@@ -2151,14 +2167,25 @@ class Component extends DCLogic {
     // de cada uma, em ordem alfabética — assim fica rápido de achar o item, igual
     // pedido.
     const catOrder = s.categories.map(c => ({ id: c.id, name: c.name }));
-    const buildSections = (byCat) => {
+    // Média mensal (pra estimar compras): total do item ÷ quantidade de meses do
+    // período — os meses que existem no app dentro do escopo (ex.: Anual 2026
+    // começa em março, Anual 2027 em janeiro), contando o mês atual. Só faz
+    // sentido quando o relatório cobre mais de um mês (anual/geral).
+    const monthsInScope = scopeMonthKeys().length;
+    const showMedia = monthsInScope > 1;
+    const fmtMedia = (n) => (Math.round(n * 10) / 10).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    const buildSections = (byCat, withMedia) => {
       const sections = []; const flatLines = []; let total = 0;
       catOrder.forEach(({ id, name }) => {
         const map = byCat[id];
         if (!map) return;
         const lines = Object.entries(map)
           .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
-          .map(([nome, saida]) => ({ nome, saida }));
+          .map(([nome, saida]) => ({
+            nome, saida,
+            hasMedia: !!(withMedia && showMedia),
+            mediaTxt: withMedia && showMedia ? fmtMedia(saida / monthsInScope) : '',
+          }));
         if (!lines.length) return;
         const subtotal = lines.reduce((sum, l) => sum + l.saida, 0);
         sections.push({ catId: id, catName: name, lines, subtotal });
@@ -2180,8 +2207,11 @@ class Component extends DCLogic {
         });
       });
     });
-    const consumoBuilt = buildSections(consumoByCat);
+    const consumoBuilt = buildSections(consumoByCat, true);
     const reportSections = consumoBuilt.sections, reportLines = consumoBuilt.flatLines, reportTotal = consumoBuilt.total;
+    const reportMediaInfo = showMedia
+      ? 'Média mensal = total ÷ ' + monthsInScope + ' meses (' + scopeMonthKeys()[0] + ' a ' + scopeMonthKeys()[monthsInScope - 1] + ')'
+      : '';
 
     const descarteByCat = {};
     scopeMonthKeys().forEach(mk => {
@@ -2523,7 +2553,7 @@ class Component extends DCLogic {
       reportMonthLabel, reportMonthOptions, reportKicker, onReportMonthChange: e => this.setState({ reportPeriod: e.target.value }),
       isGeneralReport, reportYearChips,
       reportCatChips, reportGenerated: s.reportGenerated, generateReport: () => this.setState({ reportGenerated: true }),
-      reportLines, reportTotal, reportEmpty: reportLines.length === 0, reportSections,
+      reportLines, reportTotal, reportEmpty: reportLines.length === 0, reportSections, reportMediaInfo, hasReportMediaInfo: !!reportMediaInfo,
       descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0, descarteSections,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
 
@@ -2549,12 +2579,12 @@ class Component extends DCLogic {
         doc.save(fname);
       },
       downloadReportPdf: () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal, reportMediaInfo);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         doc.save(fname);
       },
       shareReportPdf: async () => {
-        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal);
+        const doc = this.buildReportPdf(reportKicker, reportMonthLabel, reportSections, reportTotal, descarteSections, descarteTotal, reportMediaInfo);
         const fname = 'relatorio-consumo-' + reportMonthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '-') + '.pdf';
         const blob = doc.output('blob');
         const file = new File([blob], fname, { type: 'application/pdf' });
