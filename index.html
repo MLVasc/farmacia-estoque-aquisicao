@@ -1078,6 +1078,19 @@ class Component extends DCLogic {
         if (!missing.length) this.syncAllFromSheets().catch(e => this.reportSyncError((e && e.message) || String(e)));
         pending.resolve(resp.access_token);
       },
+      // Sem isso, janela do Google bloqueada ou fechada antes de terminar não
+      // dava nenhum aviso — o login simplesmente "não acontecia".
+      error_callback: (err) => {
+        const pending = this._pendingToken;
+        this._pendingToken = null;
+        if (!pending) return;
+        const type = err && err.type;
+        pending.reject(new Error(
+          type === 'popup_failed_to_open' ? 'O navegador bloqueou a janela de login do Google. Permita pop-ups para este site (ícone na barra de endereço) e tente de novo.'
+          : type === 'popup_closed' ? 'A janela de login do Google foi fechada antes de terminar. Toque em entrar de novo e conclua até o fim.'
+          : 'O login do Google não foi concluído' + (type ? ' (' + type + ')' : '') + '. Tente de novo.'
+        ));
+      },
     });
     return this._tokenClient;
   }
