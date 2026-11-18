@@ -459,6 +459,10 @@
             <div style="padding:10px 12px;margin-top:12px;border-radius:var(--radius-md);background:var(--color-accent-2-100);font:13px/1.4 var(--font-body);color:var(--color-accent-2-800)">{{ driveSyncError }}</div>
           </sc-if>
 
+          <sc-if value="{{ authDebug }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:8px 0;font:italic 12px/1.4 var(--font-body);color:var(--color-neutral-600)">Diagnóstico do login: {{ authDebug }}</div>
+          </sc-if>
+
           <p style="font: 13px/1.5 var(--font-body); color: var(--color-neutral-700); margin: 14px 0; text-align: justify">Qualquer alteração feita no app é enviada para a planilha, e qualquer alteração feita na planilha é refletida aqui automaticamente.</p>
 
           <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0">
@@ -726,6 +730,7 @@ class Component extends DCLogic {
     googleTokenExpiry: 0,
     driveFileIds: {},
     driveSyncError: null,
+    authDebug: '',
     descarteLedger: {},
     reportPeriod: 'Agosto 2026',
     tasks: [],
@@ -1064,6 +1069,13 @@ class Component extends DCLogic {
       callback: (resp) => {
         const pending = this._pendingToken;
         this._pendingToken = null;
+        const hora = new Date().toLocaleTimeString('pt-BR');
+        this.setState({
+          authDebug: hora + ' — o Google respondeu: ' + (resp.error
+            ? 'ERRO ' + resp.error + (resp.error_description ? ' (' + resp.error_description + ')' : '')
+            : (resp.access_token ? 'token recebido' : 'sem token') + ', permissões: ' + ((resp.scope || '(nenhuma)').replace(/https:\/\/www\.googleapis\.com\/auth\//g, '')))
+            + (pending ? '' : ' [sem pedido em andamento no app]'),
+        });
         if (!pending) return;
         if (resp.error) { pending.reject(new Error(resp.error)); return; }
         const expiry = Date.now() + resp.expires_in * 1000;
@@ -1083,8 +1095,9 @@ class Component extends DCLogic {
       error_callback: (err) => {
         const pending = this._pendingToken;
         this._pendingToken = null;
-        if (!pending) return;
         const type = err && err.type;
+        this.setState({ authDebug: new Date().toLocaleTimeString('pt-BR') + ' — a janela do Google não concluiu: ' + (type || 'motivo desconhecido') });
+        if (!pending) return;
         pending.reject(new Error(
           type === 'popup_failed_to_open' ? 'O navegador bloqueou a janela de login do Google. Permita pop-ups para este site (ícone na barra de endereço) e tente de novo.'
           : type === 'popup_closed' ? 'A janela de login do Google foi fechada antes de terminar. Toque em entrar de novo e conclua até o fim.'
@@ -1107,6 +1120,7 @@ class Component extends DCLogic {
       let client;
       try { client = this.ensureTokenClient(); } catch (e) { reject(e); return; }
       this._pendingToken = { resolve, reject };
+      this.setState({ authDebug: new Date().toLocaleTimeString('pt-BR') + ' — pedido enviado ao Google (' + (interactive ? 'login' : 'renovação automática') + '), aguardando resposta…' });
       client.requestAccessToken({ prompt: interactive ? 'consent' : '' });
     });
   }
@@ -2653,7 +2667,7 @@ class Component extends DCLogic {
       },
 
       lastSyncMin: s.lastSyncMin, autoSync: s.autoSync, googleSignedIn: s.googleSignedIn, googleNotSignedIn: !s.googleSignedIn,
-      driveSyncError: s.driveSyncError,
+      driveSyncError: s.driveSyncError, authDebug: s.authDebug,
       toggleGoogleSignIn: () => {
         if (s.googleSignedIn) {
           if (s.googleAccessToken && window.google) google.accounts.oauth2.revoke(s.googleAccessToken, () => {});
