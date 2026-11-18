@@ -453,6 +453,8 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20c1.6-3.6 4.6-5.5 7-5.5s5.4 1.9 7 5.5"></path></svg>
               Entrar com a conta do Google
             </button>
+            <button type="button" class="btn btn-secondary btn-block" onClick="{{ loginRedirect }}" style="margin-top:8px">Entrar de outro jeito (sem abrir janela)</button>
+            <p style="font:12px/1.4 var(--font-body);color:var(--color-neutral-600);margin:8px 0 0">Use este se o login normal fecha a janela e o app continua desconectado.</p>
           </sc-if>
 
           <sc-if value="{{ driveSyncError }}" hint-placeholder-val="{{ false }}">
@@ -638,7 +640,10 @@
 // cópia com Estoque Inicial = Estoque Atual anterior, Saída/Recebidos zerados.
 const GOOGLE_CLIENT_ID = '383103391203-gge22o26bfng3rbabcdko8b0ic4kaj5e.apps.googleusercontent.com';
 const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets';
-const ESTOQUE_FOLDER_ID = '1MOErNRNb5yCUb9H8nu-9Gb-uO0UwrasE';
+// Endereço de retorno do login por redirecionamento — precisa estar cadastrado em
+// "URIs de redirecionamento autorizados" do cliente OAuth, exatamente assim.
+const OAUTH_REDIRECT_URI = 'https://mlvasc.github.io/farmacia-estoque-aquisicao/';
+const ESTOQUE_FOLDER_ID ='1MOErNRNb5yCUb9H8nu-9Gb-uO0UwrasE';
 const ESTOQUE_SHEET_TABS = ['MEDICAÇÃO INJETÁVEIS', 'MEDICAÇÃO COMṔ', 'POMADAS ANESTESICOS  INALA GOTA', 'MEDICAÇÃO CONTROLADA', 'SOROS', 'MATERIAL MED CIRUR'];
 const ESTOQUE_TAB_META = {
   'MEDICAÇÃO INJETÁVEIS': { id: 'inj', name: 'Injetáveis', unit: 'UN' },
@@ -739,8 +744,43 @@ class Component extends DCLogic {
     dataLoaded: false,
   };
 
+  // Login alternativo, sem janela separada: leva a página inteira ao Google e o
+  // Google devolve o token no endereço (#access_token=…) ao voltar. Existe porque
+  // a janela do login normal fecha ao concluir mas a resposta não chega ao app
+  // em alguns navegadores. Exige o endereço de retorno cadastrado no Google Cloud
+  // (URIs de redirecionamento autorizados).
+  loginViaRedirect() {
+    const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try { localStorage.setItem('gsi_oauth_state', state); } catch (e) { /* sem storage: a volta vai ser ignorada */ }
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID, redirect_uri: OAUTH_REDIRECT_URI, response_type: 'token',
+      scope: GOOGLE_SCOPES, include_granted_scopes: 'true', prompt: 'consent', state,
+    });
+    window.location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + params.toString());
+  }
+
+  // Lê a volta do login por redirecionamento (se houver) e guarda o token do mesmo
+  // jeito que o login normal — a restauração de sessão logo abaixo faz o resto.
+  consumeOAuthRedirect() {
+    const h = window.location.hash || '';
+    if (!/access_token=|error=/.test(h)) return null;
+    const p = new URLSearchParams(h.replace(/^#/, ''));
+    let expected = null;
+    try { expected = localStorage.getItem('gsi_oauth_state'); localStorage.removeItem('gsi_oauth_state'); } catch (e) { /* ignora */ }
+    try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* ignora */ }
+    if (!expected || p.get('state') !== expected) return { error: 'resposta do login ignorada (o código de segurança não confere) — tente entrar de novo' };
+    if (p.get('error')) return { error: p.get('error') + (p.get('error_description') ? ' (' + p.get('error_description') + ')' : '') };
+    const token = p.get('access_token');
+    if (!token) return null;
+    this.saveTokenLocal(token, Date.now() + Number(p.get('expires_in') || 3600) * 1000);
+    const scope = p.get('scope') || '';
+    const missing = ['auth/drive', 'auth/spreadsheets'].filter(sc => !scope.includes(sc));
+    return { ok: true, scope: scope.replace(/https:\/\/www\.googleapis\.com\/auth\//g, ''), missing: missing.length > 0 };
+  }
+
   componentDidMount() {
     if (window.__hideSplash) window.__hideSplash();
+    const redirectResult = this.consumeOAuthRedirect();
     // O "há X min" nunca teve um relógio de verdade contando — ficava travado no
     // valor inicial. pulseSync() zera a cada ação sincronizada; isso soma 1 por
     // minuto enquanto nada mais mexe.
@@ -786,6 +826,16 @@ class Component extends DCLogic {
         this.syncAllFromSheets().catch(e => this.reportSyncError((e && e.message) || String(e)));
       }
     } catch (e) { /* localStorage indisponível ou dado corrompido — segue sem restaurar */ }
+    if (redirectResult) {
+      const hora = new Date().toLocaleTimeString('pt-BR');
+      if (redirectResult.error) {
+        this.setState({ authDebug: hora + ' — login por redirecionamento: ERRO ' + redirectResult.error });
+        this.reportSyncError('O login do Google não foi concluído: ' + redirectResult.error);
+      } else if (redirectResult.ok) {
+        this.setState({ authDebug: hora + ' — login por redirecionamento: token recebido, permissões: ' + (redirectResult.scope || '(nenhuma)') });
+        if (redirectResult.missing) this.setState({ driveSyncError: 'O Google não concedeu as duas permissões (Drive e Planilhas). Entre de novo e marque as duas caixas na tela do Google.' });
+      }
+    }
   }
 
   // Fallback seed shown until the real spreadsheet data (stock-data.js) loads.
@@ -2668,6 +2718,7 @@ class Component extends DCLogic {
 
       lastSyncMin: s.lastSyncMin, autoSync: s.autoSync, googleSignedIn: s.googleSignedIn, googleNotSignedIn: !s.googleSignedIn,
       driveSyncError: s.driveSyncError, authDebug: s.authDebug,
+      loginRedirect: () => this.loginViaRedirect(),
       toggleGoogleSignIn: () => {
         if (s.googleSignedIn) {
           if (s.googleAccessToken && window.google) google.accounts.oauth2.revoke(s.googleAccessToken, () => {});
