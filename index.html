@@ -123,9 +123,26 @@
               <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--color-neutral-300)">
                 <button type="button" onClick="{{ t.toggle }}" style="all:unset;cursor:pointer;width:18px;height:18px;border-radius:50%;border:1.5px solid {{ t.dotBorder }};background:{{ t.dotBg }};flex-shrink:0;margin-top:2px"></button>
                 <div style="flex:1;min-width:0">
-                  <div style="font:14px var(--font-body);color:var(--color-text);text-decoration:{{ t.strike }}">{{ t.texto }}</div>
-                  <sc-if value="{{ t.hasData }}" hint-placeholder-val="{{ false }}"><div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ t.data }}</div></sc-if>
+                  <sc-if value="{{ t.notEditing }}" hint-placeholder-val="{{ true }}">
+                    <div onClick="{{ t.startEdit }}" style="cursor:text">
+                      <div style="font:14px var(--font-body);color:var(--color-text);text-decoration:{{ t.strike }}">{{ t.texto }}</div>
+                      <sc-if value="{{ t.hasData }}" hint-placeholder-val="{{ false }}"><div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ t.data }}</div></sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ t.isEditing }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <input class="input" value="{{ editTaskText }}" onChange="{{ onEditTaskText }}" />
+                      <input class="input" type="date" value="{{ editTaskDate }}" onChange="{{ onEditTaskDate }}" />
+                      <div style="display:flex;gap:6px">
+                        <button type="button" class="btn btn-primary" onClick="{{ t.saveEdit }}">Salvar</button>
+                        <button type="button" class="btn btn-secondary" onClick="{{ cancelTaskEdit }}">Cancelar</button>
+                      </div>
+                    </div>
+                  </sc-if>
                 </div>
+                <sc-if value="{{ t.notEditing }}" hint-placeholder-val="{{ true }}">
+                  <button type="button" class="btn btn-ghost btn-icon" aria-label="Editar" onClick="{{ t.startEdit }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button>
+                </sc-if>
                 <button type="button" class="btn btn-ghost btn-icon" aria-label="Remover" onClick="{{ t.remove }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
               </div>
             </sc-for>
@@ -392,19 +409,22 @@
               <div class="card elev-sm" style="padding:16px">
                 <div class="card-kicker">{{ faltandoKicker }}</div>
                 <div class="card-title">Itens em falta / a vencer</div>
-                <sc-for list="{{ faltandoSections }}" as="fsec" hint-placeholder-count="2">
-                  <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:12px;margin-bottom:2px">{{ fsec.catName }}</div>
-                  <sc-for list="{{ fsec.lines }}" as="fl" hint-placeholder-count="3">
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--color-neutral-200)">
-                      <div style="display:flex;align-items:center;gap:9px;min-width:0">
-                        <span style="width:9px;height:9px;border-radius:50%;background:{{ fl.bucketColor }};flex-shrink:0"></span>
-                        <div style="min-width:0">
-                          <div style="font:14px var(--font-body);color:var(--color-text)">{{ fl.nome }}</div>
-                          <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ fl.status }} · Validade {{ fl.validade }}</div>
+                <sc-for list="{{ faltandoGroups }}" as="fgrp" hint-placeholder-count="2">
+                  <div style="font:600 12px var(--font-body);letter-spacing:.06em;text-transform:uppercase;color:var(--color-accent-2-700);margin-top:18px;padding-bottom:4px;border-bottom:2px solid var(--color-accent-2-700)">{{ fgrp.title }}</div>
+                  <sc-for list="{{ fgrp.sections }}" as="fsec" hint-placeholder-count="2">
+                    <div style="font:600 10px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-top:12px;margin-bottom:2px">{{ fsec.catName }}</div>
+                    <sc-for list="{{ fsec.lines }}" as="fl" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--color-neutral-200)">
+                        <div style="display:flex;align-items:center;gap:9px;min-width:0">
+                          <span style="width:9px;height:9px;border-radius:50%;background:{{ fl.bucketColor }};flex-shrink:0"></span>
+                          <div style="min-width:0">
+                            <div style="font:14px var(--font-body);color:var(--color-text)">{{ fl.nome }}</div>
+                            <div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-top:2px">{{ fl.status }} · Validade {{ fl.validade }}</div>
+                          </div>
                         </div>
+                        <div style="font:600 15px var(--font-body);color:var(--color-accent-2-700);flex-shrink:0">{{ fl.atual }}</div>
                       </div>
-                      <div style="font:600 15px var(--font-body);color:var(--color-accent-2-700);flex-shrink:0">{{ fl.atual }}</div>
-                    </div>
+                    </sc-for>
                   </sc-for>
                 </sc-for>
                 <sc-if value="{{ faltandoEmpty }}" hint-placeholder-val="{{ false }}">
@@ -657,6 +677,18 @@ const ESTOQUE_CAT_TO_TAB = {};
 Object.entries(ESTOQUE_TAB_META).forEach(([tab, meta]) => { ESTOQUE_CAT_TO_TAB[meta.id] = tab; });
 // Minúsculas e sem acento — pra busca achar "água" digitando "agua" (e vice-versa).
 const normalizeSearch = (str) => String(str == null ? '' : str).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// Aba de categoria que não está na lista fixa acima (alguém criou uma aba nova
+// na planilha do Google): gera id/nome a partir do título da aba e registra nos
+// mesmos mapas, pra leitura, gravação e virada de mês funcionarem igual.
+const estoqueMetaForTab = (tab) => {
+  if (!ESTOQUE_TAB_META[tab]) {
+    const slug = normalizeSearch(tab).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'nova';
+    const name = String(tab).trim().toLowerCase().replace(/\s+/g, ' ').replace(/(^|\s)(\S)/g, (m, a, b) => a + b.toUpperCase());
+    ESTOQUE_TAB_META[tab] = { id: 'x-' + slug, name, unit: 'UN' };
+    ESTOQUE_CAT_TO_TAB['x-' + slug] = tab;
+  }
+  return ESTOQUE_TAB_META[tab];
+};
 const MONTH_ABBR = { Janeiro: 'JAN', Fevereiro: 'FEV', Março: 'MAR', Abril: 'ABR', Maio: 'MAI', Junho: 'JUN', Julho: 'JUL', Agosto: 'AGO', Setembro: 'SET', Outubro: 'OUT', Novembro: 'NOV', Dezembro: 'DEZ' };
 // IDs conhecidos dos arquivos já existentes no Drive (Março–Agosto/2026). Viradas
 // seguintes gravam o ID do arquivo recém-copiado em state.driveFileIds, então essa
@@ -741,6 +773,7 @@ class Component extends DCLogic {
     tasks: [],
     newTaskText: '',
     newTaskDate: '',
+    editingTaskId: null, editTaskText: '', editTaskDate: '',
     dataLoaded: false,
   };
 
@@ -1056,7 +1089,10 @@ class Component extends DCLogic {
 
   // Semáforo de validade: vencido, vence em até 2/4/6 meses a partir de hoje, ou
   // null se vence depois de 6 meses (ou não dá pra saber a data).
+  // Item zerado (sem estoque) nunca é "vencido" nem "a vencer": não há o que
+  // vencer — ele é só "sem estoque" (falta), tratado à parte.
   expiryBucket(it) {
+    if (this.atual(it) <= 0) return null;
     if (it.expired) return 'vencido';
     const d = this.parseValidadeDate(it.validade);
     if (!d) return null;
@@ -1200,8 +1236,9 @@ class Component extends DCLogic {
   // estoque, e limpa fica pronto pra receber a validade do próximo lote.
   async rolloverSheetTabs(fileId) {
     const token = await this.ensureAccessToken(false);
-    for (const tab of ESTOQUE_SHEET_TABS) {
-      const range = "'" + tab + "'!B3:H1000";
+    const rolloverTabs = await this.discoverEstoqueTabs(fileId);
+    for (const tab of rolloverTabs) {
+      const range = "'" + tab.replace(/'/g, "''") + "'!B3:H1000";
       const getRes = await fetch(
         'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values/' + encodeURIComponent(range) + '?valueRenderOption=UNFORMATTED_VALUE',
         { headers: { Authorization: 'Bearer ' + token } }
@@ -1407,9 +1444,50 @@ class Component extends DCLogic {
   // pra recarregar o mês corrente (loadEstoqueFromSheet) quanto pra auditoria de
   // descarte, que precisa reler os 6 meses reais direto da planilha (não dá pra
   // confiar num retrato antigo salvo localmente).
+  // Lista as abas de categoria de UMA planilha de Estoque, direto do Google: as
+  // abas conhecidas (na ordem fixa) + qualquer aba nova que pareça uma lista de
+  // estoque (cabeçalho com "Material"/"Estoque"/"Validade" nas 2 primeiras
+  // linhas) — assim, criar uma aba nova na planilha faz ela aparecer no app
+  // sozinha. Abas ocultas e a "App Dados" são ignoradas. Se não der pra ler a
+  // estrutura, cai na lista fixa.
+  async discoverEstoqueTabs(fileId) {
+    try {
+      const token = await this.ensureAccessToken(false);
+      const res = await fetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '?fields=' + encodeURIComponent('sheets(properties(title,hidden))'),
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      if (!res.ok) return ESTOQUE_SHEET_TABS;
+      const sheets = ((await res.json()).sheets || []).map(sh => sh.properties);
+      const titles = sheets.map(p => p.title);
+      const known = ESTOQUE_SHEET_TABS.filter(t => titles.includes(t));
+      const candidates = sheets
+        .filter(p => !p.hidden && !ESTOQUE_SHEET_TABS.includes(p.title) && normalizeSearch(p.title).trim() !== normalizeSearch(APP_DATA_TAB).trim())
+        .map(p => p.title);
+      let extra = [];
+      if (candidates.length) {
+        const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values:batchGet?' +
+          candidates.map(t => 'ranges=' + encodeURIComponent("'" + t.replace(/'/g, "''") + "'!A1:H2")).join('&');
+        const r2 = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+        if (r2.ok) {
+          const vr = (await r2.json()).valueRanges || [];
+          extra = candidates.filter((t, i) => {
+            const text = normalizeSearch(((vr[i] && vr[i].values) || []).map(r => r.join(' ')).join(' '));
+            return /material|medica|estoque|validade/.test(text);
+          });
+        }
+      }
+      const all = known.concat(extra);
+      return all.length ? all : ESTOQUE_SHEET_TABS;
+    } catch (e) {
+      return ESTOQUE_SHEET_TABS;
+    }
+  }
+
   async fetchEstoqueCategoriesFromFile(fileId) {
     const token = await this.ensureAccessToken(false);
-    const ranges = ESTOQUE_SHEET_TABS.map(t => "'" + t + "'!A3:H2000");
+    const tabs = await this.discoverEstoqueTabs(fileId);
+    const ranges = tabs.map(t => "'" + t.replace(/'/g, "''") + "'!A3:H2000");
     const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + fileId + '/values:batchGet?valueRenderOption=UNFORMATTED_VALUE&' +
       ranges.map(r => 'ranges=' + encodeURIComponent(r)).join('&');
     const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
@@ -1425,8 +1503,8 @@ class Component extends DCLogic {
       }
       return raw != null ? String(raw) : '';
     };
-    return ESTOQUE_SHEET_TABS.map((tab, i) => {
-      const meta = ESTOQUE_TAB_META[tab];
+    return tabs.map((tab, i) => {
+      const meta = estoqueMetaForTab(tab);
       const rows = (valueRanges[i] && valueRanges[i].values) || [];
       const items = [];
       rows.forEach((row, ri) => {
@@ -1800,6 +1878,17 @@ class Component extends DCLogic {
     if (!res.ok) throw new Error(await this.googleApiErrorText(res));
   }
 
+  // Edita texto (C) e data (D) de uma tarefa já gravada na aba App Dados.
+  async updateTaskRemote(row, texto, data) {
+    const token = await this.ensureAccessToken(false);
+    const range = "'" + APP_DATA_TAB + "'!C" + row + ':D' + row;
+    const res = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + ACQ_FILE_ID + '/values/' + encodeURIComponent(range) + '?valueInputOption=USER_ENTERED',
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ range, values: [[texto, data]] }) }
+    );
+    if (!res.ok) throw new Error(await this.googleApiErrorText(res));
+  }
+
   async deleteTaskRemote(row) {
     const gid = await this.ensureAppDataTab();
     const token = await this.ensureAccessToken(false);
@@ -1927,23 +2016,31 @@ class Component extends DCLogic {
       doc.text('Nenhum item em falta ou a vencer nas categorias selecionadas.', marginX, y);
       y += 20;
     } else {
-      sections.forEach(sec => {
-        if (y > 760) { doc.addPage(); y = 64; }
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(90);
-        doc.text(sec.catName.toUpperCase(), marginX, y); y += 15;
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-        sec.lines.forEach(fl => {
-          if (y > 780) { doc.addPage(); y = 64; }
-          doc.setTextColor(30); doc.text(String(fl.nome), marginX, y);
-          doc.setTextColor(170, 10, 70); doc.text(String(fl.atual), 547, y, { align: 'right' });
-          y += 14;
-          doc.setFontSize(9); doc.setTextColor(120);
-          doc.text(fl.status + ' · Validade ' + fl.validade, marginX, y);
-          doc.setFontSize(11);
-          doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
-          y += 20;
+      // `sections` aqui são os grupos: [{ title, sections: [{ catName, lines }] }]
+      sections.forEach(grp => {
+        if (y > 740) { doc.addPage(); y = 64; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(170, 10, 70);
+        doc.text(grp.title.toUpperCase(), marginX, y); y += 6;
+        doc.setDrawColor(170, 10, 70); doc.line(marginX, y, 547, y); y += 16;
+        grp.sections.forEach(sec => {
+          if (y > 760) { doc.addPage(); y = 64; }
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(90);
+          doc.text(sec.catName.toUpperCase(), marginX, y); y += 15;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+          sec.lines.forEach(fl => {
+            if (y > 780) { doc.addPage(); y = 64; }
+            doc.setTextColor(30); doc.text(String(fl.nome), marginX, y);
+            doc.setTextColor(170, 10, 70); doc.text(String(fl.atual), 547, y, { align: 'right' });
+            y += 14;
+            doc.setFontSize(9); doc.setTextColor(120);
+            doc.text(fl.status + ' · Validade ' + fl.validade, marginX, y);
+            doc.setFontSize(11);
+            doc.setDrawColor(235); doc.line(marginX, y + 6, 547, y + 6);
+            y += 20;
+          });
+          y += 4;
         });
-        y += 4;
+        y += 8;
       });
     }
     return doc;
@@ -2178,11 +2275,11 @@ class Component extends DCLogic {
       let color = 'var(--color-text)';
       let meta = it.validade ? 'Validade ' + it.validade : 'Sem validade';
       if (at < 0) { color = 'var(--color-accent-2-700)'; meta = 'Saldo negativo · ' + meta; }
-      else if (it.expired) { color = 'var(--color-accent-2-600)'; meta = 'Vencido · ' + meta; }
+      else if (it.expired && at > 0) { color = 'var(--color-accent-2-600)'; meta = 'Vencido · ' + meta; }
       else if (at === 0) { color = 'var(--color-neutral-500)'; }
       else if (at < 10) { color = 'var(--color-accent-700)'; meta = 'Estoque baixo · ' + meta; }
       if (catName) meta = catName + ' · ' + meta;
-      return { id: it.id, nome: it.nome, atual: at, atualColor: color, meta, metaColor: it.expired || at < 0 ? color : 'var(--color-neutral-600)' };
+      return { id: it.id, nome: it.nome, atual: at, atualColor: color, meta, metaColor: (it.expired && at > 0) || at < 0 ? color : 'var(--color-neutral-600)' };
     };
     // Ordem alfabética do nome do material/medicação, sempre — tanto na categoria
     // ativa quanto na busca (que cruza todas as categorias).
@@ -2254,8 +2351,8 @@ class Component extends DCLogic {
     const annualYear = isAnnualReport ? Number(annualMatch[1]) : null;
     const getCatsForKey = (key) => key === monthKey ? s.categories : (s.history[key] || s.categories);
     const reportCatChips = s.categories.map(c => ({
-      id: c.id, name: c.name, tagClass: s.reportCats[c.id] ? 'tag-accent' : 'tag-outline',
-      toggle: () => this.setState(x => ({ reportCats: { ...x.reportCats, [c.id]: !x.reportCats[c.id] } })),
+      id: c.id, name: c.name, tagClass: s.reportCats[c.id] !== false ? 'tag-accent' : 'tag-outline',
+      toggle: () => this.setState(x => ({ reportCats: { ...x.reportCats, [c.id]: x.reportCats[c.id] === false } })),
     }));
     // "Geral" soma vários anos — os chips deixam escolher quais entram no relatório (o "big
     // relatório" pedido). Ano não mexido em reportYears conta como selecionado (padrão: todos).
@@ -2318,7 +2415,7 @@ class Component extends DCLogic {
     const consumoByCat = {};
     scopeMonthKeys().forEach(mk => {
       getCatsForKey(mk).forEach(c => {
-        if (!s.reportCats[c.id]) return;
+        if (s.reportCats[c.id] === false) return;
         c.items.forEach(it => {
           if (it.saida <= 0) return;
           const consumoQtd = it.saida - descarteSaidaFor(mk, c.id, it.nome);
@@ -2337,7 +2434,7 @@ class Component extends DCLogic {
     const descarteByCat = {};
     scopeMonthKeys().forEach(mk => {
       descarteFor(mk).forEach(d => {
-        if (!s.reportCats[d.catId]) return;
+        if (s.reportCats[d.catId] === false) return;
         descarteByCat[d.catId] = descarteByCat[d.catId] || {};
         descarteByCat[d.catId][d.nome] = (descarteByCat[d.catId][d.nome] || 0) + d.qtd;
       });
@@ -2355,14 +2452,17 @@ class Component extends DCLogic {
     // com saldo ainda em estoque entra entre "sem estoque" e "vence em 2
     // meses" — mais urgente que uma validade futura, mas não é falta de
     // material). Dentro de cada grupo, ordem alfabética.
-    const faltandoRank = { semEstoque: 0, vencido: 1, vermelho: 2, amarelo: 3, verde: 4 };
+    // Dois grupos separados no relatório: (1) em falta = zerados; (2) vencidos e
+    // a vencer (só itens COM estoque — zerado nunca é "vencido"). Categoria nova
+    // (aba nova na planilha) entra marcada por padrão.
+    const faltandoRank = { vencido: 1, vermelho: 2, amarelo: 3, verde: 4 };
     const faltandoCatChips = s.categories.map(c => ({
-      id: c.id, name: c.name, tagClass: s.faltandoCats[c.id] ? 'tag-accent' : 'tag-outline',
-      toggle: () => this.setState(x => ({ faltandoCats: { ...x.faltandoCats, [c.id]: !x.faltandoCats[c.id] } })),
+      id: c.id, name: c.name, tagClass: s.faltandoCats[c.id] !== false ? 'tag-accent' : 'tag-outline',
+      toggle: () => this.setState(x => ({ faltandoCats: { ...x.faltandoCats, [c.id]: x.faltandoCats[c.id] === false } })),
     }));
-    const faltandoByCat = {};
+    const faltaByCat = {}, validadeByCat = {};
     s.categories.forEach(c => {
-      if (!s.faltandoCats[c.id]) return;
+      if (s.faltandoCats[c.id] === false) return;
       // Mesmo nome com mais de uma linha (validades diferentes): se uma zera
       // mas outra ainda tem estoque, o material não está em falta de verdade —
       // não conta a que zerou como "Sem estoque".
@@ -2371,28 +2471,34 @@ class Component extends DCLogic {
       c.items.forEach(it => {
         const atual = this.atual(it);
         const bucket = this.expiryBucket(it);
-        if (atual <= 0 && nomesComEstoque[it.nome]) return;
-        if (atual > 0 && !bucket) return;
-        const parts = [];
-        if (atual <= 0) parts.push('Sem estoque');
-        if (bucket) parts.push(bucketStatusLabel[bucket]);
-        const rank = atual <= 0 ? faltandoRank.semEstoque : faltandoRank[bucket];
-        faltandoByCat[c.id] = faltandoByCat[c.id] || [];
-        faltandoByCat[c.id].push({
+        if (atual <= 0) {
+          if (nomesComEstoque[it.nome]) return;
+          faltaByCat[c.id] = faltaByCat[c.id] || [];
+          faltaByCat[c.id].push({ nome: it.nome, atual, validade: '—', status: 'Sem estoque', bucketColor: 'var(--color-neutral-400)', rank: 0 });
+          return;
+        }
+        if (!bucket) return;
+        validadeByCat[c.id] = validadeByCat[c.id] || [];
+        validadeByCat[c.id].push({
           nome: it.nome, atual, validade: it.validade || '—',
-          status: parts.join(' · ') || 'Sem estoque',
-          bucketColor: bucket ? bucketDotColor[bucket] : 'var(--color-neutral-400)',
-          rank,
+          status: bucketStatusLabel[bucket], bucketColor: bucketDotColor[bucket], rank: faltandoRank[bucket],
         });
       });
     });
-    const faltandoSections = [];
-    catOrder.forEach(({ id, name }) => {
-      const lines = faltandoByCat[id];
-      if (!lines || !lines.length) return;
-      lines.sort((a, b) => a.rank - b.rank || a.nome.localeCompare(b.nome, 'pt-BR'));
-      faltandoSections.push({ catId: id, catName: name, lines });
-    });
+    const buildFaltandoSections = (byCat) => {
+      const out = [];
+      catOrder.forEach(({ id, name }) => {
+        const lines = byCat[id];
+        if (!lines || !lines.length) return;
+        lines.sort((a, b) => a.rank - b.rank || a.nome.localeCompare(b.nome, 'pt-BR'));
+        out.push({ catId: id, catName: name, lines });
+      });
+      return out;
+    };
+    const faltandoGroups = [
+      { title: 'Em falta (sem estoque)', sections: buildFaltandoSections(faltaByCat) },
+      { title: 'Vencidos e a vencer (em até 6 meses)', sections: buildFaltandoSections(validadeByCat) },
+    ].filter(g => g.sections.length > 0);
     const faltandoKicker = monthLabel + ' · ' + yearLabel;
 
     const reportKicker = isGeneralReport
@@ -2678,14 +2784,14 @@ class Component extends DCLogic {
       descarteLines, descarteTotal, hasDescarte: descarteLines.length > 0, descarteSections,
       shareLabel: (typeof navigator !== 'undefined' && navigator.share) ? 'Compartilhar' : 'Compartilhar (baixar)',
 
-      faltandoSections, faltandoEmpty: faltandoSections.length === 0, faltandoKicker, faltandoCatChips,
+      faltandoGroups, faltandoEmpty: faltandoGroups.length === 0, faltandoKicker, faltandoCatChips,
       faltandoGenerated: s.faltandoGenerated, generateFaltandoReport: () => this.setState({ faltandoGenerated: true }),
       downloadFaltandoPdf: () => {
-        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoSections);
+        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoGroups);
         doc.save('itens-em-falta-' + monthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '') + '-' + yearLabel + '.pdf');
       },
       shareFaltandoPdf: async () => {
-        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoSections);
+        const doc = this.buildFaltandoPdf(faltandoKicker, faltandoGroups);
         const fname = 'itens-em-falta-' + monthLabel.toLowerCase().normalize('NFD').replace(/[^\x00-\x7F]/g, '') + '-' + yearLabel + '.pdf';
         const blob = doc.output('blob');
         const file = new File([blob], fname, { type: 'application/pdf' });
@@ -2722,6 +2828,27 @@ class Component extends DCLogic {
 
       tasks: s.tasks.map(t => ({
         id: t.id, texto: t.texto, data: t.data, hasData: !!t.data,
+        isEditing: s.editingTaskId === t.id, notEditing: s.editingTaskId !== t.id,
+        startEdit: () => {
+          // 'dd/mm/aaaa' guardado -> 'aaaa-mm-dd' que o campo de data entende
+          const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t.data || '');
+          const iso = m ? m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0') : '';
+          this.setState({ editingTaskId: t.id, editTaskText: t.texto, editTaskDate: iso });
+        },
+        saveEdit: () => {
+          // Lê do estado atual (não do `s` capturado na renderização): o botão
+          // pode ter sido criado antes de o usuário digitar o texto novo.
+          const cur = this.state;
+          const texto = (cur.editTaskText || '').trim();
+          if (!texto) return;
+          const data = cur.editTaskDate ? new Date(cur.editTaskDate + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+          this.setState(x => ({ tasks: x.tasks.map(tk => tk.id === t.id ? { ...tk, texto, data } : tk), editingTaskId: null }));
+          if (s.googleSignedIn && t._row != null) {
+            this.updateTaskRemote(t._row, texto, data).catch(e => this.reportSyncError('Não deu pra salvar a edição da tarefa na planilha: ' + ((e && e.message) || e)));
+          } else if (!s.googleSignedIn) {
+            this.reportSyncError('Não conectado ao Google — a edição ficou só neste aparelho.');
+          }
+        },
         strike: t.done ? 'line-through' : 'none', dotBg: t.done ? 'var(--color-accent-600)' : 'transparent', dotBorder: t.done ? 'var(--color-accent-600)' : 'var(--color-neutral-400)',
         toggle: () => {
           const newDone = !t.done;
@@ -2744,6 +2871,9 @@ class Component extends DCLogic {
         },
       })),
       noTasks: s.tasks.length === 0,
+      editTaskText: s.editTaskText, onEditTaskText: e => this.setState({ editTaskText: e.target.value }),
+      editTaskDate: s.editTaskDate, onEditTaskDate: e => this.setState({ editTaskDate: e.target.value }),
+      cancelTaskEdit: () => this.setState({ editingTaskId: null }),
       newTaskText: s.newTaskText, onNewTaskText: e => this.setState({ newTaskText: e.target.value }),
       newTaskDate: s.newTaskDate, onNewTaskDate: e => this.setState({ newTaskDate: e.target.value }),
       addTask: () => {
